@@ -1,17 +1,113 @@
 use crate::http::Response;
 
 /// Inject security headers into every response.
-/// Stub — full headers in next commit.
+/// Called as the final step in router.rs — no response
+/// leaves the server without this function running.
 pub fn inject(mut response: Response) -> Response {
-    // These will expand to the full security header set.
-    // Stub includes only the most critical headers.
+    // Content Security Policy.
+    // Blocks inline scripts, eval(), and any resource not from
+    // the same origin. The WASM bundle is same-origin only.
+    // If a third-party resource is ever needed, it must be
+    // explicitly added here and the security implications reviewed.
+    response.headers.push((
+        "Content-Security-Policy".to_string(),
+        concat!(
+            "default-src 'self'; ",
+            "script-src 'self'; ",
+            "style-src 'self'; ",
+            "img-src 'self'; ",
+            "font-src 'self'; ",
+            "connect-src 'self'; ",
+            "frame-ancestors 'none'; ",
+            "base-uri 'self'; ",
+            "form-action 'self'",
+        ).to_string(),
+    ));
+
+    // HTTP Strict Transport Security.
+    // Tells the browser to only connect via HTTPS for 1 year.
+    // Prevents SSL stripping attacks where an attacker downgrades
+    // the connection from HTTPS to HTTP.
+    // max-age=31536000 is exactly one year in seconds.
+    // → Open question: add includeSubDomains and preload once
+    //   the domain is stable. See headers.md.
+    response.headers.push((
+        "Strict-Transport-Security".to_string(),
+        "max-age=31536000".to_string(),
+    ));
+
+    // X-Frame-Options.
+    // Prevents this page from being embedded in an iframe
+    // on any other domain. Blocks clickjacking attacks.
+    // DENY is stricter than SAMEORIGIN — no iframes at all,
+    // not even from the same domain.
     response.headers.push((
         "X-Frame-Options".to_string(),
         "DENY".to_string(),
     ));
+
+    // X-Content-Type-Options.
+    // Prevents the browser from MIME-sniffing a response away
+    // from the declared Content-Type. Without this, a browser
+    // might execute a file served as text/plain as JavaScript
+    // if it looks like a script. nosniff disables this behaviour.
     response.headers.push((
         "X-Content-Type-Options".to_string(),
         "nosniff".to_string(),
     ));
+
+    // Referrer-Policy.
+    // Controls how much referrer information is sent with requests
+    // to other origins. no-referrer means no referrer header is
+    // sent at all — the visitor's navigation path is not leaked.
+    response.headers.push((
+        "Referrer-Policy".to_string(),
+        "no-referrer".to_string(),
+    ));
+
+    // Permissions-Policy.
+    // Disables browser features this site does not use.
+    // Each empty list () disables that feature entirely.
+    // Reduces attack surface from browser API abuse.
+    response.headers.push((
+        "Permissions-Policy".to_string(),
+        concat!(
+            "camera=(), ",
+            "microphone=(), ",
+            "geolocation=(), ",
+            "payment=(), ",
+            "usb=(), ",
+            "interest-cohort=()",
+        ).to_string(),
+    ));
+
+    // Cross-Origin-Opener-Policy.
+    // Isolates the browsing context from other origins.
+    // Prevents cross-origin documents from getting a reference
+    // to this window object. Required for SharedArrayBuffer
+    // if WASM threading is ever used.
+    response.headers.push((
+        "Cross-Origin-Opener-Policy".to_string(),
+        "same-origin".to_string(),
+    ));
+
+    // Cross-Origin-Embedder-Policy.
+    // Prevents the document from loading cross-origin resources
+    // that do not explicitly grant permission.
+    // Required alongside COOP for SharedArrayBuffer access.
+    response.headers.push((
+        "Cross-Origin-Embedder-Policy".to_string(),
+        "require-corp".to_string(),
+    ));
+
+    // Cross-Origin-Resource-Policy.
+    // Prevents other origins from reading the responses to
+    // requests made to this server. Blocks cross-origin
+    // information leakage.
+    response.headers.push((
+        "Cross-Origin-Resource-Policy".to_string(),
+        "same-origin".to_string(),
+    ));
+
     response
 }
