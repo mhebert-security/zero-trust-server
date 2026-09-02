@@ -1,4 +1,5 @@
 use std::net::TcpListener;
+use std::sync::Arc;
 use std::thread;
 
 mod tls;
@@ -15,45 +16,55 @@ mod handlers {
 }
 
 fn main() {
-    // Bind to all interfaces on port 443.
-    // Requires root or CAP_NET_BIND_SERVICE.
-    // Known issue: should run as unprivileged user with nftables
-    // REDIRECT 443 → high port. Documented in main.md.
+    // Load TLS config once at startup.
+    // Cert paths will move to environment variables (future issue).
+    let tls_config = tls::load_config(
+        "/etc/ssl/certs/server.pem",
+        "/etc/ssl/private/server.key",
+    );
+
     let listener = TcpListener::bind("0.0.0.0:443")
         .expect("Failed to bind to port 443");
 
     println!("Zero-trust server listening on 0.0.0.0:443");
 
-    // Accept loop — runs forever, one thread per connection.
-    // Unbounded thread spawning is a known limitation documented
-    // in main.md. nftables rate limiting provides the outer bound.
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                // Move the stream into the spawned thread.
-                // No shared state between threads at this level.
+                // Clone the Arc — cheap reference count increment,
+                // not a copy of the config itself.
+                let config = Arc::clone(&tls_config);
                 thread::spawn(move || {
-                    handle_connection(stream);
+                    handle_connection(stream, config);
                 });
             }
             Err(e) => {
-                // Log the error and continue accepting.
-                // A single failed accept does not kill the server.
                 eprintln!("Connection accept error: {e}");
             }
         }
     }
 }
 
-fn handle_connection(stream: std::net::TcpStream) {
-    // This function will grow as modules are implemented.
-    // Current state: placeholder, logs connection and drops stream.
-    // Next: TLS handshake via tls::wrap(stream)
+fn handle_connection(
+    stream: std::net::TcpStream,
+    config: Arc<rustls::ServerConfig>,
+) {
     let peer = stream.peer_addr()
         .map(|a| a.to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
     println!("Connection from: {peer}");
-    // stream is dropped here, closing the connection.
-    // Next commit: tls::wrap(stream) → router::handle(tls_stream)
+
+    // Wrap the raw stream in TLS.
+    // Handshake completes on first read/write.
+    let _tls_stream = match tls::wrap(stream, config) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("TLS wrap error from {peer}: {e}");
+            return;
+        }
+    };
+
+    // Next: pass tls_stream to http::parse_request()
+    println!("TLS connection established with {peer}");
 }
