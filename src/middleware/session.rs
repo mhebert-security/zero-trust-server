@@ -13,6 +13,7 @@ const SESSION_COOKIE_NAME: &str = "zts";
 /// Only constructed by verify_token() after successful HMAC check.
 /// The existence of this struct is proof the token is valid.
 pub struct Session {
+    #[allow(dead_code)]
     pub expires_at: u64,
 }
 
