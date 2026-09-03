@@ -64,7 +64,10 @@ fn handle_connection(
         .map(|a| a.to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    // Wrap raw TCP stream in TLS.
+    println!("Connection from: {peer}");
+
+    // Wrap raw TCP stream in TLS FIRST.
+    // Read and write must happen on the TLS stream, not the raw stream.
     let mut tls_stream = match tls::wrap(stream, config) {
         Ok(s) => s,
         Err(e) => {
@@ -73,15 +76,11 @@ fn handle_connection(
         }
     };
 
-    // Read the raw request bytes from the TLS stream.
-    // Buffer size matches our MAX_HEADER_SIZE + MAX_BODY_SIZE.
-    // → GitHub issue #6: review buffer size against real requirements
+    // Read request bytes from the TLS stream.
+    // This triggers the TLS handshake on first read.
     let mut buf = vec![0u8; 8192 + 65536];
     let n = match tls_stream.read(&mut buf) {
-        Ok(0) => {
-            // Client closed connection before sending anything.
-            return;
-        }
+        Ok(0) => return,
         Ok(n) => n,
         Err(e) => {
             eprintln!("Read error from {peer}: {e}");
@@ -89,9 +88,7 @@ fn handle_connection(
         }
     };
 
-    // Parse the raw bytes into a structured Request.
-    // On parse failure, parse_request returns an error Response
-    // ready to send directly — no further processing needed.
+    // Parse the request.
     let request = match http::parse_request(&buf[..n]) {
         Ok(req) => req,
         Err(error_response) => {
@@ -100,21 +97,13 @@ fn handle_connection(
         }
     };
 
-    // Route the request through the middleware chain and handlers.
-    // router::handle() runs:
-    // 1. session verification
-    // 2. handler dispatch
-    // 3. security header injection
+    // Route through middleware chain and handlers.
     let response = router::handle(request);
 
     // Send the response.
     send_response(&mut tls_stream, response, &peer);
 }
 
-/// Serialise and write a Response to the TLS stream.
-/// Logs errors but does not panic — a write failure
-/// means the client disconnected, which is not an error
-/// worth crashing the thread over.
 fn send_response(
     stream: &mut tls::TlsStream,
     response: http::Response,

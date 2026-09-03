@@ -18,14 +18,30 @@ pub struct TlsStream {
 
 impl TlsStream {
     /// Read bytes from the TLS stream into buf.
-    /// Handles TLS record decryption transparently.
+    /// Handles TLS handshake and record decryption transparently.
+    ///
+    /// Critical: during the TLS handshake the server must both
+    /// read AND write. The original implementation only read,
+    /// causing the handshake to stall — the client waits for
+    /// the server's handshake response which never gets flushed.
+    /// This corrected version flushes writes at every opportunity.
     pub fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         loop {
-            // Complete any pending TLS handshake IO first.
+            // Flush any pending writes FIRST.
+            // During handshake, rustls queues ServerHello and other
+            // handshake messages that must be sent before the client
+            // will send more data. Without this flush the handshake
+            // deadlocks — both sides wait for the other.
+            while self.conn.wants_write() {
+                self.conn.write_tls(&mut self.sock)?;
+            }
+
+            // Read incoming TLS records from the socket.
             if self.conn.wants_read() {
                 if let Err(e) = self.conn.read_tls(&mut self.sock) {
                     return Err(e);
                 }
+                // Decrypt records and advance the TLS state machine.
                 if let Err(e) = self.conn.process_new_packets() {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -34,11 +50,20 @@ impl TlsStream {
                 }
             }
 
-            // Read decrypted plaintext bytes.
+            // Flush again — process_new_packets may have queued
+            // additional handshake messages (e.g. Finished).
+            while self.conn.wants_write() {
+                self.conn.write_tls(&mut self.sock)?;
+            }
+
+            // Attempt to read decrypted plaintext bytes.
+            // Only available after handshake is complete.
             let mut reader = self.conn.reader();
             match std::io::Read::read(&mut reader, buf) {
                 Ok(0) if buf.is_empty() => return Ok(0),
                 Ok(n) => return Ok(n),
+                // WouldBlock means no plaintext available yet —
+                // handshake may still be in progress, loop again.
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     continue;
                 }
@@ -55,7 +80,7 @@ impl TlsStream {
         let n = std::io::Write::write(&mut writer, buf)?;
         drop(writer);
 
-        // Flush encrypted bytes out to the socket.
+        // Flush all encrypted bytes to the socket.
         while self.conn.wants_write() {
             self.conn.write_tls(&mut self.sock)?;
         }
@@ -68,7 +93,6 @@ impl TlsStream {
 /// Called once at startup. The resulting config is wrapped in Arc
 /// and shared across all connection-handling threads.
 pub fn load_config(cert_path: &str, key_path: &str) -> Arc<ServerConfig> {
-    // Load certificate chain from PEM file.
     let cert_file = File::open(cert_path)
         .unwrap_or_else(|e| panic!("Cannot open cert file {cert_path}: {e}"));
     let mut cert_reader = BufReader::new(cert_file);
@@ -76,7 +100,6 @@ pub fn load_config(cert_path: &str, key_path: &str) -> Arc<ServerConfig> {
         .collect::<Result<Vec<_>, _>>()
         .expect("Failed to parse certificates");
 
-    // Load private key from PEM file.
     let key_file = File::open(key_path)
         .unwrap_or_else(|e| panic!("Cannot open key file {key_path}: {e}"));
     let mut key_reader = BufReader::new(key_file);
@@ -84,10 +107,8 @@ pub fn load_config(cert_path: &str, key_path: &str) -> Arc<ServerConfig> {
         .expect("Failed to read private key")
         .expect("No private key found in file");
 
-    // Build ServerConfig.
     // rustls defaults: TLS 1.3 preferred, TLS 1.2 minimum.
     // No TLS 1.0, no TLS 1.1, no legacy cipher suites.
-    // These are secure defaults — we do not override them.
     let config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)
@@ -97,8 +118,7 @@ pub fn load_config(cert_path: &str, key_path: &str) -> Arc<ServerConfig> {
 }
 
 /// Wrap a raw TcpStream in a TLS server connection.
-/// Returns a TlsStream ready for encrypted IO.
-/// The TLS handshake is completed lazily on first read/write.
+/// The TLS handshake completes on first read() call, not here.
 pub fn wrap(
     stream: TcpStream,
     config: Arc<ServerConfig>,
