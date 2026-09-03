@@ -6,10 +6,32 @@ use crate::handlers::{challenge, content};
 /// Every request passes through here — no exceptions.
 ///
 /// Middleware order is fixed and deliberate:
-/// 1. Session verification (PoW challenge gate)
-/// 2. Handler dispatch (method + path matching)
-/// 3. Security header injection (every response)
+/// 1. Public endpoints (static assets + /pow/verify) — pre-session
+/// 2. Session verification (PoW challenge gate)
+/// 3. Handler dispatch (method + path matching)
+/// 4. Security header injection (every response)
 pub fn handle(request: Request) -> Response {
+    // Step 0 — Public endpoints reachable WITHOUT a session.
+    // Exactly two things are public before the gate: the static assets the
+    // challenge page needs (CSS/JS/WASM) and the PoW submission endpoint.
+    // An unverified visitor must be able to submit a solution to /pow/verify
+    // to RECEIVE a session cookie. If either sat behind the session gate
+    // below, the challenge could never complete: assets would come back as
+    // challenge HTML (wrong MIME type, module import fails) and the verify
+    // POST would never reach pow::verify at all.
+
+    // Static assets — the challenge page fetches these before a session
+    // exists.
+    if request.method == Method::Get && request.path.starts_with("/static/") {
+        return headers::inject(content::static_asset(&request.path));
+    }
+
+    // PoW solution submission — the only way an unverified visitor obtains a
+    // session. On success pow::verify returns 302 + Set-Cookie.
+    if request.method == Method::Post && request.path == "/pow/verify" {
+        return headers::inject(crate::middleware::pow::verify(&request));
+    }
+
     // Step 1 — Session verification.
     // If the request does not carry a valid session cookie,
     // short-circuit immediately and serve the PoW challenge.
@@ -25,28 +47,15 @@ pub fn handle(request: Request) -> Response {
     // are valid. Everything else returns 404.
     // Adding a route requires changing this match statement —
     // intentional, see router.md Explicit Design Decisions.
+    // /pow/verify is NOT here — it is handled in Step 0 because it is
+    // public (it issues the session cookie to unverified visitors).
     let response = match (&request.method, request.path.as_str()) {
-        // PoW solution submission — POST only.
-        // The browser submits the computed nonce here.
-        (Method::Post, "/pow/verify") => {
-            crate::middleware::pow::verify(&request)
-        }
-
         // Main portfolio content — GET only.
         (Method::Get, "/") => content::index(&request),
         (Method::Get, "/about") => content::about(&request),
         (Method::Get, "/projects") => content::projects(&request),
         (Method::Get, "/writing") => content::writing(&request),
         (Method::Get, "/contact") => content::contact(&request),
-
-        // WASM bundle and static assets — GET only.
-        // These are served to the challenge page before session
-        // verification passes — the only exception to the zero
-        // trust gate above. The challenge page needs the WASM
-        // bundle to solve the PoW puzzle.
-        (Method::Get, path) if path.starts_with("/static/") => {
-            content::static_asset(path)
-        }
 
         // Catch-all — 404 for anything not explicitly listed.
         _ => Response {

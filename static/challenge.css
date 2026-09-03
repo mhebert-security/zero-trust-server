@@ -1,0 +1,30 @@
+/* Challenge page styles.
+ * Served from /static/challenge.css — the CSP (style-src 'self')
+ * forbids inline <style> blocks, so the styling is an external file. */
+body {
+    font-family: system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    background: #0f1117;
+    color: #e2e8f0;
+}
+
+.container {
+    text-align: center;
+    max-width: 400px;
+    padding: 2rem;
+}
+
+.status {
+    font-size: 0.9rem;
+    color: #94a3b8;
+    margin-top: 1rem;
+}
+
+.error {
+    color: #f87171;
+    display: none;
+}

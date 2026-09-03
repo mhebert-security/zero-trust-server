@@ -67,11 +67,14 @@ pub fn issue_cookie() -> Option<String> {
     let token = format!("{}.{}", payload, signature_hex);
 
     // Set-Cookie header value with security flags.
+    // Path=/ is REQUIRED: without it, RFC 6265 §5.1.4 derives the cookie
+    // path from the request URI (/pow/verify → /pow), so the browser would
+    // not send the cookie on the redirect to / and the gate would loop.
     // Secure: only sent over HTTPS (enforced by our TLS layer).
     // HttpOnly: not accessible to JavaScript — prevents XSS theft.
     // SameSite=Strict: not sent on cross-site requests — prevents CSRF.
     Some(format!(
-        "{}={}; Secure; HttpOnly; SameSite=Strict; Max-Age={}",
+        "{}={}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age={}",
         SESSION_COOKIE_NAME,
         token,
         SESSION_DURATION_SECS,

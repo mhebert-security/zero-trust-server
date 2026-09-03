@@ -16,9 +16,16 @@ scp -P 2222 \
     root@188.245.239.118:/opt/zero-trust-server/zero-trust-server
 
 echo "Copying static files to server..."
-scp -P 2222 -r \
-    static/ \
-    root@188.245.239.118:/opt/zero-trust-server/static
+# Replace the remote static dir deterministically.
+# NOTE: do NOT use `scp -r static/ dest:/opt/zero-trust-server/static` here —
+# if the destination already exists (it does after the first deploy), scp
+# nests the source folder inside it -> /static/static/, and the server's
+# path guard (content.rs rejects filenames containing '/') makes those files
+# unservable. A tar stream over ssh gives exact, idempotent mirror semantics.
+tar -C static -cf - . | ssh -p 2222 root@188.245.239.118 \
+    "rm -rf /opt/zero-trust-server/static && \
+     mkdir -p /opt/zero-trust-server/static && \
+     tar -C /opt/zero-trust-server/static -xf -"
 
 echo "Starting service..."
 ssh -p 2222 root@188.245.239.118 "systemctl start zero-trust-server"

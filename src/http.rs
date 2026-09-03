@@ -28,6 +28,7 @@ pub struct Request {
 }
 
 /// An HTTP response ready to be written to the wire.
+#[derive(Debug)]
 pub struct Response {
     pub status: u16,
     pub reason: &'static str,
@@ -114,55 +115,80 @@ impl Response {
     }
 }
 
+/// The outcome of parsing a request from bytes that may arrive in parts.
+#[derive(Debug)]
+pub enum ParseOutcome {
+    /// The buffer contained a complete, well-formed request.
+    Complete(Request),
+    /// The buffer does not yet hold the full request — the header section
+    /// or the Content-Length body has not fully arrived. This is NOT an
+    /// error: a request legitimately arrives split across TCP segments and
+    /// TLS records. The caller should read more bytes and parse again.
+    Incomplete,
+    /// The bytes form a malformed or over-limit request. The response is
+    /// ready to send directly to the client.
+    Rejected(Response),
+}
+
 /// Parse a raw byte buffer into a Request.
-/// Returns Ok(Request) on success.
-/// Returns Err(Response) on any parse failure — the error response
-/// is ready to send directly to the client.
+/// The buffer may hold only part of the request — see ParseOutcome.
 ///
-/// Design: fail fast and fail loudly. Any deviation from valid
-/// HTTP/1.1 syntax returns an error response immediately.
-/// No leniency, no guessing intent.
-pub fn parse_request(buf: &[u8]) -> Result<Request, Response> {
-    // Enforce maximum header size before any parsing.
+/// Design: fail fast and fail loudly for malformed input. But a request
+/// whose bytes simply have not all arrived yet is not malformed; it yields
+/// Incomplete so the caller can keep reading instead of rejecting a request
+/// that would have parsed fine once the rest of its body arrived.
+pub fn parse_request(buf: &[u8]) -> ParseOutcome {
     // Find the end of the header section first.
-    let header_end = find_header_end(buf)
-        .ok_or_else(|| {
+    let header_end = match find_header_end(buf) {
+        Some(e) => e,
+        None => {
+            // No header terminator in the buffer yet.
             if buf.len() >= MAX_HEADER_SIZE {
-                Response::payload_too_large()
-            } else {
-                Response::bad_request()
+                // Over the header budget with no terminator — more bytes
+                // cannot make this valid.
+                return ParseOutcome::Rejected(Response::payload_too_large());
             }
-        })?;
+            // Headers may still be arriving — ask the caller for more.
+            return ParseOutcome::Incomplete;
+        }
+    };
 
     // Parse the header section as UTF-8 text.
     // HTTP/1.1 headers must be ASCII — UTF-8 is a superset of ASCII
     // so this is correct and slightly more permissive than necessary.
-    let header_section = std::str::from_utf8(&buf[..header_end])
-        .map_err(|_| Response::bad_request())?;
+    let header_section = match std::str::from_utf8(&buf[..header_end]) {
+        Ok(s) => s,
+        Err(_) => return ParseOutcome::Rejected(Response::bad_request()),
+    };
 
     let mut lines = header_section.lines();
 
     // Parse the request line: METHOD PATH HTTP/VERSION
-    let request_line = lines.next()
-        .ok_or_else(Response::bad_request)?;
+    let request_line = match lines.next() {
+        Some(l) => l,
+        None => return ParseOutcome::Rejected(Response::bad_request()),
+    };
 
     let mut parts = request_line.splitn(3, ' ');
 
-    let method = match parts.next().ok_or_else(Response::bad_request)? {
-        "GET"  => Method::Get,
-        "POST" => Method::Post,
-        _      => return Err(Response::method_not_allowed()),
+    let method = match parts.next() {
+        Some("GET") => Method::Get,
+        Some("POST") => Method::Post,
+        Some(_) => return ParseOutcome::Rejected(Response::method_not_allowed()),
+        None => return ParseOutcome::Rejected(Response::bad_request()),
     };
 
-    let path = parts.next()
-        .ok_or_else(Response::bad_request)?
-        .to_string();
+    let path = match parts.next() {
+        Some(p) => p.to_string(),
+        None => return ParseOutcome::Rejected(Response::bad_request()),
+    };
 
     // Enforce HTTP/1.1 only.
     // Permanent decision — see Explicit Design Decisions in http.md.
-    match parts.next().ok_or_else(Response::bad_request)? {
-        "HTTP/1.1" => {}
-        _ => return Err(Response::version_not_supported()),
+    match parts.next() {
+        Some("HTTP/1.1") => {}
+        Some(_) => return ParseOutcome::Rejected(Response::version_not_supported()),
+        None => return ParseOutcome::Rejected(Response::bad_request()),
     }
 
     // Parse headers into a HashMap.
@@ -173,8 +199,10 @@ pub fn parse_request(buf: &[u8]) -> Result<Request, Response> {
         if line.is_empty() {
             break;
         }
-        let (name, value) = line.split_once(':')
-            .ok_or_else(Response::bad_request)?;
+        let (name, value) = match line.split_once(':') {
+            Some(nv) => nv,
+            None => return ParseOutcome::Rejected(Response::bad_request()),
+        };
         headers.insert(
             name.trim().to_lowercase(),
             value.trim().to_string(),
@@ -185,16 +213,20 @@ pub fn parse_request(buf: &[u8]) -> Result<Request, Response> {
     // Body length is determined by the Content-Length header.
     // No Content-Length means no body — correct for GET requests.
     let body = if let Some(len_str) = headers.get("content-length") {
-        let content_length: usize = len_str.trim().parse()
-            .map_err(|_| Response::bad_request())?;
+        let content_length: usize = match len_str.trim().parse() {
+            Ok(l) => l,
+            Err(_) => return ParseOutcome::Rejected(Response::bad_request()),
+        };
 
         if content_length > MAX_BODY_SIZE {
-            return Err(Response::payload_too_large());
+            return ParseOutcome::Rejected(Response::payload_too_large());
         }
 
         let body_start = header_end + 4; // skip past \r\n\r\n
         if buf.len() < body_start + content_length {
-            return Err(Response::bad_request());
+            // Header section is complete but the body has not fully
+            // arrived — read more before parsing.
+            return ParseOutcome::Incomplete;
         }
 
         buf[body_start..body_start + content_length].to_vec()
@@ -202,7 +234,7 @@ pub fn parse_request(buf: &[u8]) -> Result<Request, Response> {
         Vec::new()
     };
 
-    Ok(Request { method, path, headers, body })
+    ParseOutcome::Complete(Request { method, path, headers, body })
 }
 
 /// Find the end of the HTTP header section.
@@ -214,4 +246,100 @@ fn find_header_end(buf: &[u8]) -> Option<usize> {
     buf[..search_limit]
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A full GET request.
+    fn get_request() -> Vec<u8> {
+        b"GET / HTTP/1.1\r\nHost: mhebert.dev\r\n\r\n".to_vec()
+    }
+
+    /// The header section of a POST with a 5-byte body.
+    fn post_headers() -> Vec<u8> {
+        b"POST /pow/verify HTTP/1.1\r\nHost: mhebert.dev\r\n\
+          Content-Type: application/x-www-form-urlencoded\r\n\
+          Content-Length: 5\r\n\r\n"
+            .iter()
+            .copied()
+            .collect()
+    }
+
+    #[test]
+    fn complete_get_parses() {
+        let outcome = parse_request(&get_request());
+        match outcome {
+            ParseOutcome::Complete(req) => {
+                assert_eq!(req.method, Method::Get);
+                assert_eq!(req.path, "/");
+                assert!(req.body.is_empty());
+            }
+            _ => panic!("complete GET should parse, got {outcome:?}"),
+        }
+    }
+
+    #[test]
+    fn complete_post_parses_body() {
+        let mut buf = post_headers();
+        buf.extend_from_slice(b"hello");
+        match parse_request(&buf) {
+            ParseOutcome::Complete(req) => {
+                assert_eq!(req.method, Method::Post);
+                assert_eq!(req.path, "/pow/verify");
+                assert_eq!(req.body, b"hello");
+            }
+            _ => panic!("complete POST should parse"),
+        }
+    }
+
+    #[test]
+    fn post_without_body_is_incomplete() {
+        // Header terminator present, Content-Length advertises a body that
+        // has not arrived yet — must be Incomplete, not rejected.
+        let outcome = parse_request(&post_headers());
+        assert!(
+            matches!(outcome, ParseOutcome::Incomplete),
+            "missing body should be Incomplete, got {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn post_split_across_reads_accumulates() {
+        // Simulate the real failure: headers arrive first, body in a later
+        // read. Parsing after each read must not reject the request.
+        let buf = post_headers();
+        match parse_request(&buf) {
+            ParseOutcome::Incomplete => {}
+            other => panic!("first read (headers only) should be Incomplete, got {other:?}"),
+        }
+
+        let mut buf = post_headers();
+        buf.extend_from_slice(b"he"); // partial body in a second read
+        match parse_request(&buf) {
+            ParseOutcome::Incomplete => {}
+            other => panic!("partial body should still be Incomplete, got {other:?}"),
+        }
+
+        buf.extend_from_slice(b"llo"); // rest of the body
+        match parse_request(&buf) {
+            ParseOutcome::Complete(req) => assert_eq!(req.body, b"hello"),
+            other => panic!("full request should parse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn partial_headers_are_incomplete() {
+        // No \r\n\r\n yet and well under the header cap: keep reading.
+        let buf = b"POST /pow/verify HTTP/1.1\r\nHost: mhebert".to_vec();
+        assert!(matches!(parse_request(&buf), ParseOutcome::Incomplete));
+    }
+
+    #[test]
+    fn malformed_request_is_rejected() {
+        // Garbage that can never become valid must be Rejected, not spin.
+        let outcome = parse_request(b"not http\r\n\r\n".as_ref());
+        assert!(matches!(outcome, ParseOutcome::Rejected(_)));
+    }
 }

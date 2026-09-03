@@ -76,24 +76,33 @@ fn handle_connection(
         }
     };
 
-    // Read request bytes from the TLS stream.
-    // This triggers the TLS handshake on first read.
-    let mut buf = vec![0u8; 8192 + 65536];
-    let n = match tls_stream.read(&mut buf) {
-        Ok(0) => return,
-        Ok(n) => n,
-        Err(e) => {
-            eprintln!("Read error from {peer}: {e}");
-            return;
-        }
-    };
+    // Read the full request from the TLS stream.
+    // A single read() can return only part of a request — TLS records and
+    // TCP segments split large requests (notably POST bodies) across
+    // multiple reads. Rejecting the request the moment the first read is
+    // short would wrongly 400 every request whose body arrived in a later
+    // segment (observed intermittently on /pow/verify). Keep reading until
+    // the request is complete or a hard parse error says to stop.
+    let mut buf: Vec<u8> = Vec::new();
+    let request = loop {
+        let mut chunk = [0u8; 8192];
+        let n = match tls_stream.read(&mut chunk) {
+            Ok(0) => return, // client closed before the request completed
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("Read error from {peer}: {e}");
+                return;
+            }
+        };
+        buf.extend_from_slice(&chunk[..n]);
 
-    // Parse the request.
-    let request = match http::parse_request(&buf[..n]) {
-        Ok(req) => req,
-        Err(error_response) => {
-            send_response(&mut tls_stream, error_response, &peer);
-            return;
+        match http::parse_request(&buf) {
+            http::ParseOutcome::Complete(req) => break req,
+            http::ParseOutcome::Incomplete => continue,
+            http::ParseOutcome::Rejected(error_response) => {
+                send_response(&mut tls_stream, error_response, &peer);
+                return;
+            }
         }
     };
 
