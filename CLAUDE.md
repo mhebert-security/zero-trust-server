@@ -20,6 +20,14 @@
 - Use the fetch MCP tool whenever dealing with unfamiliar library APIs, third-party crate updates, or external RFC/spec documentation.
 - When live vulnerability lookups or CVE advisories are required, search via available search tools before drafting mitigations.
 
+## Visual Documentation & Screenshots
+- Whenever frontend UI, challenge flows, or layout changes are made, run:
+  node scripts/capture-stage.js <stage-name>
+  (e.g. challenge for the pre-solve PoW gate screen, verified for the post-auth state; the script also honors CAPTURE_URL / CAPTURE_NAME env overrides for non-local targets and custom filenames).
+- All screenshots must output to /home/splayingcow/Obsidian/08_Assets/screenshots/.
+- When appending to the project note in Obsidian, embed captured screenshots using standard wikilinks:
+  ![[08_Assets/screenshots/<file>.png]] (or ![[<file>.png]])
+
 ## Verification, Testing & Static Security Analysis
 Before declaring any task complete or committing:
 1. Run local build and unit tests via the bash tool (cargo check and cargo test).
