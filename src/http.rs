@@ -342,4 +342,25 @@ mod tests {
         let outcome = parse_request(b"not http\r\n\r\n".as_ref());
         assert!(matches!(outcome, ParseOutcome::Rejected(_)));
     }
+
+    #[test]
+    fn unsupported_method_is_rejected_405() {
+        // HEAD, PUT, DELETE, OPTIONS … are rejected at parse time. This is
+        // the response main.rs must run through headers::inject before
+        // sending (it never reaches router::handle) — that was the "405s skip
+        // security headers" bypass.
+        for method in ["HEAD", "PUT", "DELETE", "OPTIONS", "PATCH"] {
+            let req = format!("{method} / HTTP/1.1\r\nHost: mhebert.dev\r\n\r\n");
+            match parse_request(req.as_bytes()) {
+                ParseOutcome::Rejected(r) => {
+                    assert_eq!(r.status, 405, "{method} should reject 405");
+                    assert!(
+                        r.headers.iter().any(|(n, _)| n == "Allow"),
+                        "{method} 405 must carry an Allow header",
+                    );
+                }
+                other => panic!("{method} should be Rejected(405), got {other:?}"),
+            }
+        }
+    }
 }

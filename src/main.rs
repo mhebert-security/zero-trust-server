@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,8 +25,8 @@ mod handlers {
 /// an attacker who opens N sockets costs N threads (memory + scheduler
 /// pressure). The accept loop holds a permit from this semaphore per
 /// connection, so at most MAX_CONNECTIONS threads ever run. Further
-/// connections wait in the accept queue (kernel backpressure) until a
-/// permit frees — they are refused rather than spawning unbounded threads.
+/// connections are rejected inline (see reject_saturated_*) rather than
+/// spawning unbounded threads.
 /// → DESIGN.md: bounded concurrency
 const MAX_CONNECTIONS: usize = 128;
 
@@ -34,6 +35,15 @@ const MAX_CONNECTIONS: usize = 128;
 /// dropped instead of holding a thread open forever.
 /// → DESIGN.md: 5-second read timeout bounds slow-loris.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Write timeout applied to every accepted socket, symmetric to READ_TIMEOUT.
+/// A client that sends a request and then stops reading must not pin a worker
+/// thread on a blocked write_tls forever: rustls writes through the
+/// underlying socket, so the socket write timeout applies. Without it one
+/// client could hold one of the 128 slots open indefinitely by never draining
+/// its receive buffer.
+/// → GitHub issue: write timeout on TlsStream (symmetric to read timeout).
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn main() {
     // Validate required environment variables at startup.
@@ -96,14 +106,20 @@ fn main() {
         }
     };
 
-    // Spawn an accept loop per listener. Each accepts a socket, acquires a
-    // semaphore permit (blocking the loop when at capacity — kernel
-    // backpressure instead of unbounded threads), then hands the socket to
-    // a worker thread that holds the permit for the connection's lifetime.
+    // Spawn an accept loop per listener. Each accepts a socket, tries to take
+    // a semaphore permit, and either hands the socket to a worker thread that
+    // holds the permit for the connection's lifetime or — when all permits are
+    // held — rejects the surplus inline without blocking (see accept_loop).
     let tls_handle = {
         let semaphore = Arc::clone(&semaphore);
         thread::spawn(move || {
-            accept_loop(tls_listener, semaphore, tls_config, handle_tls_connection)
+            accept_loop(
+                tls_listener,
+                semaphore,
+                tls_config,
+                handle_tls_connection,
+                reject_saturated_tls,
+            )
         })
     };
 
@@ -113,7 +129,13 @@ fn main() {
             acme_webroot,
         });
         thread::spawn(move || {
-            accept_loop(listener, semaphore, http_ctx, handle_http_connection)
+            accept_loop(
+                listener,
+                semaphore,
+                http_ctx,
+                handle_http_connection,
+                reject_saturated_http,
+            )
         });
     }
 
@@ -124,34 +146,82 @@ fn main() {
 /// Run the accept→bound-spawn loop for one listener.
 ///
 /// `handle` is a plain function pointer so the same loop serves both the TLS
-/// and plaintext-HTTP listeners. `shared` is the Arc each worker needs.
+/// and plaintext-HTTP listeners; `reject` is the per-listener answer when all
+/// MAX_CONNECTIONS permits are already held. `shared` is the Arc each worker
+/// needs.
 fn accept_loop<H: Send + Sync + 'static>(
     listener: TcpListener,
     semaphore: Arc<semaphore::Semaphore>,
     shared: Arc<H>,
     handle: fn(TcpStream, Arc<H>),
+    reject: fn(TcpStream),
 ) {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                // Block here (rather than accept) when at capacity: new
-                // sockets wait in the kernel backlog instead of spawning
-                // unbounded threads — an attacker opening N sockets costs at
-                // most MAX_CONNECTIONS live threads, the rest are refused by
-                // backlog overflow.
-                let permit = Arc::clone(&semaphore).acquire_owned();
-                let shared = Arc::clone(&shared);
-                thread::spawn(move || {
-                    // Permit lives for the whole connection: bounds the
-                    // number of concurrently alive worker threads.
-                    let _permit = permit;
-                    handle(stream, shared);
-                });
+                // Take a permit WITHOUT blocking the accept loop. When every
+                // permit is held we still accept the socket and reject it
+                // inline (cheap, no thread) instead of waiting here — a
+                // parked accept loop makes a saturated server look hung, and
+                // lets the kernel backlog swallow connections that just time
+                // out client-side. Excess demand gets a prompt, honest
+                // failure instead. → GitHub issue: clean 503 on saturation.
+                match semaphore.try_acquire_owned() {
+                    Some(permit) => {
+                        let shared = Arc::clone(&shared);
+                        thread::spawn(move || {
+                            // Permit lives for the whole connection: bounds
+                            // the number of concurrently alive worker threads.
+                            let _permit = permit;
+                            handle(stream, shared);
+                        });
+                    }
+                    None => reject(stream),
+                }
             }
             Err(e) => {
                 eprintln!("Connection accept error: {e}");
             }
         }
+    }
+}
+
+/// Reject one excess connection on the TLS listener.
+///
+/// When every one of the MAX_CONNECTIONS worker threads is busy, the accept
+/// loop cannot afford to do a TLS handshake per excess socket just to send a
+/// 503 body — under attack that would stall the accept loop on clients that
+/// never send a ClientHello. The cheap, honest answer is to drop the socket:
+/// the client sees an immediate connection close rather than an indefinite
+/// hang, and the server keeps accepting (so a freed permit is picked up at
+/// once). A TLS-layer 503 is deliberately not attempted for this reason.
+fn reject_saturated_tls(stream: TcpStream) {
+    // Dropping the socket sends FIN. No handshake, no thread, no wait.
+    let _ = stream;
+}
+
+/// Reject one excess connection on the plaintext (redirect/ACME) listener
+/// with a real HTTP 503. No TLS handshake is required on this port, so a
+/// full 503 with the security header set is affordable inline; a browser
+/// hitting the port-80 redirect while the server is saturated sees a clean
+/// "service unavailable", not a hang. Security headers are injected exactly
+/// as every other response gets them.
+fn reject_saturated_http(mut stream: TcpStream) {
+    if let Err(e) = stream.set_write_timeout(Some(WRITE_TIMEOUT)) {
+        eprintln!("set_write_timeout failed during 503 reject: {e}");
+    }
+    let response = http::Response {
+        status: 503,
+        reason: "Service Unavailable",
+        headers: vec![
+            ("Content-Type".to_string(), "text/plain; charset=utf-8".to_string()),
+            ("Connection".to_string(), "close".to_string()),
+        ],
+        body: b"503 Service Unavailable".to_vec(),
+    };
+    let bytes = middleware::headers::inject(response).into_bytes();
+    if let Err(e) = stream.write_all(&bytes) {
+        eprintln!("503 reject write failed: {e}");
     }
 }
 
@@ -187,6 +257,16 @@ fn handle_tls_connection(
         eprintln!("set_read_timeout failed for {peer}: {e}");
     }
 
+    // Symmetric write timeout, set on the raw socket before the TLS wrap (as
+    // with the read timeout — rustls writes through this socket, so the
+    // socket write timeout bounds write_tls). A client that sends a request
+    // and then never reads the response must not be able to pin a worker
+    // thread on a blocked write forever; the slot is released after 5s of an
+    // undrained socket buffer.
+    if let Err(e) = stream.set_write_timeout(Some(WRITE_TIMEOUT)) {
+        eprintln!("set_write_timeout failed for {peer}: {e}");
+    }
+
     // Wrap raw TCP stream in TLS FIRST.
     let mut tls_stream = match tls::wrap(stream, config) {
         Ok(s) => s,
@@ -220,7 +300,16 @@ fn handle_tls_connection(
             http::ParseOutcome::Complete(req) => break req,
             http::ParseOutcome::Incomplete => continue,
             http::ParseOutcome::Rejected(error_response) => {
-                send_response(&mut tls_stream, error_response, &peer);
+                // A request rejected during parsing never reached
+                // router::handle, which is the only place that normally runs
+                // headers::inject. Unsupported methods (HEAD, PUT, DELETE …)
+                // produce a 405 here, so those responses were being sent raw
+                // with NO security headers — a real bypass. Inject them now:
+                // every response on this listener must carry them.
+                // → GitHub issue: 405s skipping headers::inject.
+                let response =
+                    middleware::headers::inject(error_response);
+                send_response(&mut tls_stream, response, &peer);
                 return;
             }
         }
@@ -251,9 +340,23 @@ fn send_response(
     let status = response.status;
     let bytes = response.into_bytes();
 
-    if let Err(e) = stream.write(&bytes) {
-        eprintln!("Write error to {peer}: {e}");
-    } else {
-        println!("{peer} -> {status}");
+    // Drain the full body. rustls Write may accept only part of a large
+    // response per call (and the write timeout added in main.rs means a call
+    // can now also fail mid-response), so a single write() could truncate.
+    // Loop until every byte is accepted; 0 or an error ends the attempt.
+    let mut sent = 0;
+    while sent < bytes.len() {
+        match stream.write(&bytes[sent..]) {
+            Ok(0) => {
+                eprintln!("Write stalled to {peer}: 0 bytes accepted");
+                return;
+            }
+            Ok(n) => sent += n,
+            Err(e) => {
+                eprintln!("Write error to {peer}: {e}");
+                return;
+            }
+        }
     }
+    println!("{peer} -> {status}");
 }

@@ -23,6 +23,11 @@ use crate::http::{self, Method, Request, Response};
 /// exposed to slow-loris as any other socket.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Symmetric write timeout (mirrors WRITE_TIMEOUT in main.rs). A client that
+/// stops reading while we send the redirect/ACME response must not hold the
+/// worker thread on a blocked write forever.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Cap on buffered header bytes before we give up waiting for a well-formed
 /// request and redirect anyway.
 const MAX_HEADER_BYTES: usize = 8192;
@@ -46,6 +51,12 @@ pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
 
     if let Err(e) = stream.set_read_timeout(Some(READ_TIMEOUT)) {
         eprintln!("set_read_timeout failed for {peer}: {e}");
+    }
+
+    // Symmetric to the TLS listener (main.rs): a client that never drains its
+    // receive buffer must not pin this thread on a blocked write forever.
+    if let Err(e) = stream.set_write_timeout(Some(WRITE_TIMEOUT)) {
+        eprintln!("set_write_timeout failed for {peer}: {e}");
     }
 
     let mut stream = stream;
