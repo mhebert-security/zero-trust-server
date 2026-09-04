@@ -12,13 +12,13 @@ const MAX_BODY_SIZE: usize = 65536; // 64KB
 
 /// HTTP method — only the subset this server needs to handle.
 /// Anything else returns 405 Method Not Allowed.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Method {
     Get,
     /// Routed exactly like GET but answered bodyless (RFC 9110: HEAD must be
     /// supported wherever GET is, returning the GET headers — including
     /// Content-Length — minus the body). The router treats it as GET; the
-    /// serializer suppresses the body at the wire (see Response::into_bytes).
+    /// serializer suppresses the body at the wire (see `Response::into_bytes`).
     Head,
     Post,
 }
@@ -43,7 +43,7 @@ pub struct Response {
 
 impl Response {
     /// Serialise the response into bytes suitable for writing directly to a
-    /// TlsStream. This is the SINGLE wire funnel every response flows through
+    /// `TlsStream`. This is the SINGLE wire funnel every response flows through
     /// — per-request framing lives here and only here:
     ///
     ///   * Content-Length always reflects the full body length. For a HEAD
@@ -67,7 +67,7 @@ impl Response {
         // Headers
         for (name, value) in &self.headers {
             out.extend_from_slice(
-                format!("{}: {}\r\n", name, value).as_bytes(),
+                format!("{name}: {value}\r\n").as_bytes(),
             );
         }
 
@@ -152,7 +152,7 @@ pub enum ParseOutcome {
 }
 
 /// Parse a raw byte buffer into a Request.
-/// The buffer may hold only part of the request — see ParseOutcome.
+/// The buffer may hold only part of the request — see `ParseOutcome`.
 ///
 /// Design: fail fast and fail loudly for malformed input. But a request
 /// whose bytes simply have not all arrived yet is not malformed; it yields
@@ -160,34 +160,29 @@ pub enum ParseOutcome {
 /// that would have parsed fine once the rest of its body arrived.
 pub fn parse_request(buf: &[u8]) -> ParseOutcome {
     // Find the end of the header section first.
-    let header_end = match find_header_end(buf) {
-        Some(e) => e,
-        None => {
-            // No header terminator in the buffer yet.
-            if buf.len() >= MAX_HEADER_SIZE {
-                // Over the header budget with no terminator — more bytes
-                // cannot make this valid.
-                return ParseOutcome::Rejected(Response::payload_too_large());
-            }
-            // Headers may still be arriving — ask the caller for more.
-            return ParseOutcome::Incomplete;
+    let Some(header_end) = find_header_end(buf) else {
+        // No header terminator in the buffer yet.
+        if buf.len() >= MAX_HEADER_SIZE {
+            // Over the header budget with no terminator — more bytes
+            // cannot make this valid.
+            return ParseOutcome::Rejected(Response::payload_too_large());
         }
+        // Headers may still be arriving — ask the caller for more.
+        return ParseOutcome::Incomplete;
     };
 
     // Parse the header section as UTF-8 text.
     // HTTP/1.1 headers must be ASCII — UTF-8 is a superset of ASCII
     // so this is correct and slightly more permissive than necessary.
-    let header_section = match std::str::from_utf8(&buf[..header_end]) {
-        Ok(s) => s,
-        Err(_) => return ParseOutcome::Rejected(Response::bad_request()),
+    let Ok(header_section) = std::str::from_utf8(&buf[..header_end]) else {
+        return ParseOutcome::Rejected(Response::bad_request());
     };
 
     let mut lines = header_section.lines();
 
     // Parse the request line: METHOD PATH HTTP/VERSION
-    let request_line = match lines.next() {
-        Some(l) => l,
-        None => return ParseOutcome::Rejected(Response::bad_request()),
+    let Some(request_line) = lines.next() else {
+        return ParseOutcome::Rejected(Response::bad_request());
     };
 
     // Reject control characters inside the request line. HTTP/1.1 delimits
@@ -231,9 +226,8 @@ pub fn parse_request(buf: &[u8]) -> ParseOutcome {
         if line.is_empty() {
             break;
         }
-        let (name, value) = match line.split_once(':') {
-            Some(nv) => nv,
-            None => return ParseOutcome::Rejected(Response::bad_request()),
+        let Some((name, value)) = line.split_once(':') else {
+            return ParseOutcome::Rejected(Response::bad_request());
         };
         let name = name.trim().to_lowercase();
         let value = value.trim().to_string();
@@ -284,7 +278,7 @@ pub fn parse_request(buf: &[u8]) -> ParseOutcome {
 /// Find the end of the HTTP header section.
 /// Headers end at the first occurrence of \r\n\r\n.
 /// Returns the index of the \r in the terminating \r\n\r\n,
-/// or None if not found within MAX_HEADER_SIZE bytes.
+/// or None if not found within `MAX_HEADER_SIZE` bytes.
 fn find_header_end(buf: &[u8]) -> Option<usize> {
     let search_limit = buf.len().min(MAX_HEADER_SIZE);
     buf[..search_limit]
@@ -306,9 +300,7 @@ mod tests {
         b"POST /pow/verify HTTP/1.1\r\nHost: mhebert.dev\r\n\
           Content-Type: application/x-www-form-urlencoded\r\n\
           Content-Length: 5\r\n\r\n"
-            .iter()
-            .copied()
-            .collect()
+            .to_vec()
     }
 
     #[test]

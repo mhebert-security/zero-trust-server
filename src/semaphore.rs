@@ -1,6 +1,6 @@
 //! A minimal non-blocking counting semaphore built on std primitives.
 //!
-//! std::sync::Semaphore is not stable on this toolchain (unresolved import
+//! `std::sync::Semaphore` is not stable on this toolchain (unresolved import
 //! on rustc 1.91), so here is a tiny permit pool guarded by a Mutex. Used by
 //! main.rs to bound the number of concurrently alive connection threads
 //! (→ DESIGN.md bounded concurrency; a third-party semaphore crate would be
@@ -11,7 +11,7 @@
 //! makes a saturated server look hung); it takes a permit when one is free
 //! and rejects the surplus inline otherwise (→ GitHub issue: clean 503 on
 //! backpressure, not a hang). Panic-safe: a poisoned mutex is treated as
-//! unlocked (into_inner) rather than unwinding.
+//! unlocked (`into_inner`) rather than unwinding.
 
 use std::sync::{Arc, Mutex};
 
@@ -47,6 +47,10 @@ impl Semaphore {
             return None;
         }
         *available -= 1;
+        // The permit count is already decremented; release the mutex before
+        // the Arc clone below so a contender can take the freed slot a little
+        // sooner rather than waiting on a guard held for unrelated work.
+        drop(available);
         Some(SemaphorePermit { sem: Arc::clone(self) })
     }
 
@@ -63,7 +67,9 @@ impl Drop for SemaphorePermit {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|p| p.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[cfg(test)]

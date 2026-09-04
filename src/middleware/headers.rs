@@ -2,14 +2,14 @@ use crate::http::Response;
 
 /// Inject security headers into every response.
 ///
-/// Every response on the TLS listener passes through here: router::handle is
+/// Every response on the TLS listener passes through here: `router::handle` is
 /// the normal path (main.rs → router.rs step 3), and parse-time rejections —
 /// a HEAD/PUT/DELETE request hitting the 405 path before routing — are
-/// injected too (main.rs ParseOutcome::Rejected). The plaintext port-80
+/// injected too (main.rs `ParseOutcome::Rejected`). The plaintext port-80
 /// listener is the one deliberate exception: a pre-TLS 301 redirect cannot
 /// meaningfully carry CSP or HSTS (HSTS is only honored over an existing TLS
 /// session), so those responses are not injected — except the saturation 503,
-/// which is, for consistency (main.rs reject_saturated_http).
+/// which is, for consistency (main.rs `reject_saturated_http`).
 pub fn inject(mut response: Response) -> Response {
     // Content Security Policy.
     // Blocks inline scripts, eval(), and any resource not from

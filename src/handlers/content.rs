@@ -31,9 +31,8 @@ pub fn contact(_request: &Request) -> Response {
 /// Prevents directory traversal attacks.
 pub fn static_asset(path: &str) -> Response {
     // Strip the /static/ prefix to get the filename.
-    let filename = match path.strip_prefix("/static/") {
-        Some(f) => f,
-        None => return not_found(),
+    let Some(filename) = path.strip_prefix("/static/") else {
+        return not_found();
     };
 
     // Reject any path containing traversal sequences.
@@ -58,9 +57,10 @@ pub fn static_asset(path: &str) -> Response {
     // Read the file from the static directory.
     // The static directory is at the project root.
     // Path is: static/{filename} — already validated above.
-    let file_path = format!("static/{}", filename);
-    match std::fs::read(&file_path) {
-        Ok(bytes) => Response {
+    let file_path = format!("static/{filename}");
+    std::fs::read(&file_path).map_or_else(
+        |_| not_found(),
+        |bytes| Response {
             status: 200,
             reason: "OK",
             headers: vec![
@@ -73,8 +73,7 @@ pub fn static_asset(path: &str) -> Response {
             ],
             body: bytes,
         },
-        Err(_) => not_found(),
-    }
+    )
 }
 
 /// Build a standard HTML response.

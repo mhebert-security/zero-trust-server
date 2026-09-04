@@ -2,19 +2,16 @@ use crate::http::{Request, Response};
 use crate::middleware::pow;
 
 pub fn serve(request: &Request) -> Response {
-    let (nonce, nonce_sig) = match pow::generate_challenge() {
-        Some(c) => c,
-        None => {
-            return Response {
-                status: 500,
-                reason: "Internal Server Error",
-                headers: vec![(
-                    "Content-Type".to_string(),
-                    "text/html; charset=utf-8".to_string(),
-                )],
-                body: b"Server configuration error.".to_vec(),
-            };
-        }
+    let Some((nonce, nonce_sig)) = pow::generate_challenge() else {
+        return Response {
+            status: 500,
+            reason: "Internal Server Error",
+            headers: vec![(
+                "Content-Type".to_string(),
+                "text/html; charset=utf-8".to_string(),
+            )],
+            body: b"Server configuration error.".to_vec(),
+        };
     };
 
     let destination = extract_destination(request);
@@ -76,9 +73,5 @@ fn build_challenge_html(
          rule allows it to load, and it can import the WASM glue. -->
     <script type="module" src="/static/challenge.js"></script>
 </body>
-</html>"#,
-        nonce = nonce,
-        nonce_sig = nonce_sig,
-        destination = destination,
-    )
+</html>"#)
 }

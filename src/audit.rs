@@ -4,10 +4,10 @@
 //! (the NixOS unit sends stdout to journald — see configuration.nix
 //! StandardOutput=journal), parseable without a log parser:
 //!
-//!   audit  <unix_ms>  <listener>  <peer>  <method>  <path>  <status>  <session>  <latency_ms>
+//!   audit  <`unix_ms`>  <listener>  <peer>  <method>  <path>  <status>  <session>  <`latency_ms`>
 //!
 //! Fields are separated by a single TAB. journald already stamps arrival
-//! time on the line, but the leading unix_ms keeps the record self-contained
+//! time on the line, but the leading `unix_ms` keeps the record self-contained
 //! and sortable if it is ever piped elsewhere. <session> is yes/no for
 //! requests that reached the session gate, and "na" where no session decision
 //! was possible (a request rejected before routing, a public pre-gate route,
@@ -25,7 +25,7 @@
 //! this format makes `journalctl -u zero-trust-server | grep audit` +
 //! `cut -f4,5,7,8` actual analysis.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::http::Method;
 
@@ -48,8 +48,8 @@ pub struct AuditCtx {
 impl AuditCtx {
     /// Complete and emit the audit line: status + elapsed time (request start
     /// → last byte written) are only known here.
-    pub fn finish(&self, status: u16, latency_ms: u64) {
-        println!("{}", self.line(status, latency_ms));
+    pub fn finish(&self, status: u16, elapsed: Duration) {
+        println!("{}", self.line(status, ms_u64(elapsed)));
     }
 
     /// Build the TAB-separated line, without printing. Split out so tests can
@@ -75,7 +75,7 @@ impl AuditCtx {
 }
 
 /// Human-readable name for a parsed method.
-pub fn method_name(m: &Method) -> &'static str {
+pub const fn method_name(m: &Method) -> &'static str {
     match m {
         Method::Get => "GET",
         Method::Head => "HEAD",
@@ -88,10 +88,7 @@ pub fn method_name(m: &Method) -> &'static str {
 /// of the request line). Never fails — hostile input yields "-".
 pub fn method_token(buf: &[u8]) -> String {
     let space = buf.iter().position(|&b| b == b' ');
-    let token = match space {
-        Some(i) => &buf[..i],
-        None => buf,
-    };
+    let token = space.map_or(buf, |i| &buf[..i]);
     token_string(token)
 }
 
@@ -100,16 +97,12 @@ pub fn method_token(buf: &[u8]) -> String {
 /// case as [`method_token`]. "-" when absent or over-length.
 pub fn path_token(buf: &[u8]) -> String {
     let first = buf.iter().position(|&b| b == b' ');
-    let token = match first {
-        Some(i) => {
-            let rest = &buf[i + 1..];
-            match rest.iter().position(|&b| b == b' ') {
-                Some(j) => &rest[..j],
-                None => rest,
-            }
-        }
-        None => buf,
-    };
+    let token = first.map_or(buf, |i| {
+        let rest = &buf[i + 1..];
+        rest.iter()
+            .position(|&b| b == b' ')
+            .map_or(rest, |j| &rest[..j])
+    });
     token_string(token)
 }
 
@@ -128,6 +121,18 @@ fn unix_ms() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)
+}
+
+/// A `Duration` in whole milliseconds, narrowed to `u64` for the audit line.
+///
+/// `as_millis()` yields a `u128`; the spans measured here are per-request
+/// wall-clock times that stay far below a second, and `u64` cannot overflow
+/// until ≈584 million years of milliseconds — the cast cannot actually
+/// truncate, so this one narrowing lives here (callers pass a `Duration`,
+/// never a pre-truncated integer).
+#[allow(clippy::cast_possible_truncation)]
+const fn ms_u64(elapsed: Duration) -> u64 {
+    elapsed.as_millis() as u64
 }
 
 /// Replace control characters so a hostile path/host header can never forge
@@ -203,8 +208,8 @@ mod tests {
             session: None,
         };
         let line = c.line(301, 2);
-        assert_eq!(line.matches("\n").count(), 0);
-        assert!(!line.contains("\r"));
+        assert_eq!(line.matches('\n').count(), 0);
+        assert!(!line.contains('\r'));
         assert_eq!(line.split('\t').count(), 9);
     }
 }

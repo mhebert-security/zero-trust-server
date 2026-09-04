@@ -3,7 +3,7 @@
 //! Its only jobs:
 //!   1. 301-redirect every request to the HTTPS equivalent, and
 //!   2. serve ACME HTTP-01 challenge tokens from a webroot so the Let's
-//!      Encrypt (or ZeroSSL) client can validate this host — the zero-trust
+//!      Encrypt (or `ZeroSSL`) client can validate this host — the zero-trust
 //!      server is its own web server, so nobody else can serve those files.
 //!
 //! Everything is decided from the request line + headers; request bodies are
@@ -24,7 +24,7 @@ use crate::http::{self, Method, Request, Response};
 /// exposed to slow-loris as any other socket.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Symmetric write timeout (mirrors WRITE_TIMEOUT in main.rs). A client that
+/// Symmetric write timeout (mirrors `WRITE_TIMEOUT` in main.rs). A client that
 /// stops reading while we send the redirect/ACME response must not hold the
 /// worker thread on a blocked write forever.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -47,8 +47,7 @@ pub struct RedirectConfig {
 pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
     let peer = stream
         .peer_addr()
-        .map(|a| a.to_string())
-        .unwrap_or_else(|_| "unknown".to_string());
+        .map_or_else(|_| "unknown".to_string(), |a| a.to_string());
 
     if let Err(e) = stream.set_read_timeout(Some(READ_TIMEOUT)) {
         eprintln!("set_read_timeout failed for {peer}: {e}");
@@ -81,34 +80,33 @@ pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
 
         // Enough to decide: header section complete, or given up on it.
         if has_header_terminator(&buf) || buf.len() >= MAX_HEADER_BYTES {
-            let (response, ctx, head) = match http::parse_request(&buf) {
-                http::ParseOutcome::Complete(req) => {
+            let (response, ctx, head) =
+                if let http::ParseOutcome::Complete(req) = http::parse_request(&buf) {
                     let head = req.method == Method::Head;
                     let ctx = audit::AuditCtx {
                         listener: "http80",
-                        peer: peer.clone(),
+                        peer,
                         method: audit::method_name(&req.method).to_string(),
                         path: req.path.clone(),
                         session: None,
                     };
                     (respond(&req, cfg), ctx, head)
-                }
-                // Malformed or body-missing — never a valid ACME fetch, and
-                // the safe answer to a broken plaintext request is still a
-                // redirect to HTTPS. Method/path are best-effort from the raw
-                // buffer so even the junk shows up in the audit log.
-                _ => {
+                } else {
+                    // Malformed or body-missing — never a valid ACME fetch,
+                    // and the safe answer to a broken plaintext request is
+                    // still a redirect to HTTPS. Method/path are best-effort
+                    // from the raw buffer so even the junk shows up in the
+                    // audit log.
                     let ctx = audit::AuditCtx {
                         listener: "http80",
-                        peer: peer.clone(),
+                        peer,
                         method: audit::method_token(&buf),
                         path: audit::path_token(&buf),
                         session: None,
                     };
                     (redirect_to_https(&cfg.public_host, "/", None), ctx, false)
-                }
-            };
-            write_response(&mut stream, response, ctx, head, started);
+                };
+            write_response(&mut stream, response, &ctx, head, started);
             return;
         }
     }
@@ -168,8 +166,9 @@ fn serve_token(webroot: &Path, token: &str) -> Response {
         return not_found();
     }
 
-    match std::fs::read(webroot.join(token)) {
-        Ok(bytes) => Response {
+    std::fs::read(webroot.join(token)).map_or_else(
+        |_| not_found(),
+        |bytes| Response {
             status: 200,
             reason: "OK",
             // Content-Length is deliberately NOT set here: into_bytes (the
@@ -181,8 +180,7 @@ fn serve_token(webroot: &Path, token: &str) -> Response {
             )],
             body: bytes,
         },
-        Err(_) => not_found(),
-    }
+    )
 }
 
 fn not_found() -> Response {
@@ -244,7 +242,7 @@ fn has_header_terminator(buf: &[u8]) -> bool {
 fn write_response(
     stream: &mut TcpStream,
     response: Response,
-    ctx: audit::AuditCtx,
+    ctx: &audit::AuditCtx,
     head: bool,
     started: Instant,
 ) {
@@ -253,7 +251,7 @@ fn write_response(
     if let Err(e) = stream.write_all(&bytes) {
         eprintln!("Write error on redirect connection to {}: {e}", ctx.peer);
     }
-    ctx.finish(status, started.elapsed().as_millis() as u64);
+    ctx.finish(status, started.elapsed());
 }
 
 #[cfg(test)]
@@ -363,7 +361,7 @@ mod tests {
     }
 
     /// A Host header carrying CRLF + an injected header must be rejected by
-    /// valid_host, so the Location falls back to the public host and the
+    /// `valid_host`, so the Location falls back to the public host and the
     /// serialized response contains no trace of the injection. This is the
     /// response-header-injection (header splitting) case, distinct from the
     /// plain "bad\r\n" garbage already covered above.

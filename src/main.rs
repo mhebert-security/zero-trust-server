@@ -25,8 +25,8 @@ mod handlers {
 /// Every accepted socket is handled on its own OS thread; without a bound
 /// an attacker who opens N sockets costs N threads (memory + scheduler
 /// pressure). The accept loop holds a permit from this semaphore per
-/// connection, so at most MAX_CONNECTIONS threads ever run. Further
-/// connections are rejected inline (see reject_saturated_*) rather than
+/// connection, so at most `MAX_CONNECTIONS` threads ever run. Further
+/// connections are rejected inline (see `reject_saturated_*`) rather than
 /// spawning unbounded threads.
 /// → DESIGN.md: bounded concurrency
 const MAX_CONNECTIONS: usize = 128;
@@ -37,13 +37,13 @@ const MAX_CONNECTIONS: usize = 128;
 /// → DESIGN.md: 5-second read timeout bounds slow-loris.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Write timeout applied to every accepted socket, symmetric to READ_TIMEOUT.
+/// Write timeout applied to every accepted socket, symmetric to `READ_TIMEOUT`.
 /// A client that sends a request and then stops reading must not pin a worker
-/// thread on a blocked write_tls forever: rustls writes through the
+/// thread on a blocked `write_tls` forever: rustls writes through the
 /// underlying socket, so the socket write timeout applies. Without it one
 /// client could hold one of the 128 slots open indefinitely by never draining
 /// its receive buffer.
-/// → GitHub issue: write timeout on TlsStream (symmetric to read timeout).
+/// → GitHub issue: write timeout on `TlsStream` (symmetric to read timeout).
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn main() {
@@ -107,59 +107,67 @@ fn main() {
         }
     };
 
-    // Spawn an accept loop per listener. Each accepts a socket, tries to take
-    // a semaphore permit, and either hands the socket to a worker thread that
-    // holds the permit for the connection's lifetime or — when all permits are
-    // held — rejects the surplus inline without blocking (see accept_loop).
-    let tls_handle = {
-        let semaphore = Arc::clone(&semaphore);
-        thread::spawn(move || {
-            accept_loop(
-                tls_listener,
-                semaphore,
-                tls_config,
-                handle_tls_connection,
-                reject_saturated_tls,
-            )
-        })
-    };
-
-    if let Some(listener) = http_listener {
-        let http_ctx = Arc::new(redirect::RedirectConfig {
+    // http_ctx (like tls_config) is created before the scope below so the
+    // accept-loop threads can borrow it for their whole (infinite) lifetime.
+    let http_ctx = http_listener.as_ref().map(|_| {
+        Arc::new(redirect::RedirectConfig {
             public_host,
             acme_webroot,
-        });
-        thread::spawn(move || {
-            accept_loop(
-                listener,
-                semaphore,
-                http_ctx,
-                handle_http_connection,
-                reject_saturated_http,
-            )
-        });
-    }
+        })
+    });
 
-    // The accept loops run forever; joining keeps main() alive.
-    let _ = tls_handle.join();
+    // Run one accept loop per listener inside a scope, so each loop can borrow
+    // the listeners and shared configs for its whole (infinite) lifetime; the
+    // scope then blocks forever, which keeps main() alive exactly as the old
+    // explicit join did. Each loop accepts a socket, tries to take a semaphore
+    // permit, and either hands the socket to a worker thread that holds the
+    // permit for the connection's lifetime or — when all permits are held —
+    // rejects the surplus inline without blocking (see accept_loop).
+    thread::scope(|scope| {
+        scope.spawn(|| {
+            accept_loop(
+                &tls_listener,
+                &semaphore,
+                &tls_config,
+                handle_tls_connection,
+                reject_saturated_tls,
+            );
+        });
+
+        if let (Some(listener), Some(ctx)) =
+            (http_listener.as_ref(), http_ctx.as_ref())
+        {
+            scope.spawn(|| {
+                accept_loop(
+                    listener,
+                    &semaphore,
+                    ctx,
+                    handle_http_connection,
+                    reject_saturated_http,
+                );
+            });
+        }
+    });
 }
 
 /// Run the accept→bound-spawn loop for one listener.
 ///
 /// `handle` is a plain function pointer so the same loop serves both the TLS
 /// and plaintext-HTTP listeners; `reject` is the per-listener answer when all
-/// MAX_CONNECTIONS permits are already held. `shared` is the Arc each worker
-/// needs.
+/// `MAX_CONNECTIONS` permits are already held. `shared` is the config `Arc`
+/// each worker thread needs. The listener and shared configs are borrowed —
+/// the loop runs forever, inside scoped threads that `main()` never leaves, so
+/// the borrows live for the whole process rather than being moved in.
 fn accept_loop<H: Send + Sync + 'static>(
-    listener: TcpListener,
-    semaphore: Arc<semaphore::Semaphore>,
-    shared: Arc<H>,
-    handle: fn(TcpStream, Arc<H>),
-    reject: fn(TcpStream),
+    listener: &TcpListener,
+    semaphore: &Arc<semaphore::Semaphore>,
+    shared: &Arc<H>,
+    handle: fn(TcpStream, &Arc<H>),
+    reject: fn(&mut TcpStream),
 ) {
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => {
+            Ok(mut stream) => {
                 // Take a permit WITHOUT blocking the accept loop. When every
                 // permit is held we still accept the socket and reject it
                 // inline (cheap, no thread) instead of waiting here — a
@@ -169,15 +177,15 @@ fn accept_loop<H: Send + Sync + 'static>(
                 // failure instead. → GitHub issue: clean 503 on saturation.
                 match semaphore.try_acquire_owned() {
                     Some(permit) => {
-                        let shared = Arc::clone(&shared);
+                        let shared = Arc::clone(shared);
                         thread::spawn(move || {
                             // Permit lives for the whole connection: bounds
                             // the number of concurrently alive worker threads.
                             let _permit = permit;
-                            handle(stream, shared);
+                            handle(stream, &shared);
                         });
                     }
-                    None => reject(stream),
+                    None => reject(&mut stream),
                 }
             }
             Err(e) => {
@@ -189,16 +197,16 @@ fn accept_loop<H: Send + Sync + 'static>(
 
 /// Reject one excess connection on the TLS listener.
 ///
-/// When every one of the MAX_CONNECTIONS worker threads is busy, the accept
+/// When every one of the `MAX_CONNECTIONS` worker threads is busy, the accept
 /// loop cannot afford to do a TLS handshake per excess socket just to send a
 /// 503 body — under attack that would stall the accept loop on clients that
-/// never send a ClientHello. The cheap, honest answer is to drop the socket:
+/// never send a `ClientHello`. The cheap, honest answer is to drop the socket:
 /// the client sees an immediate connection close rather than an indefinite
 /// hang, and the server keeps accepting (so a freed permit is picked up at
 /// once). A TLS-layer 503 is deliberately not attempted for this reason.
-fn reject_saturated_tls(stream: TcpStream) {
-    // Dropping the socket sends FIN. No handshake, no thread, no wait.
-    let _ = stream;
+const fn reject_saturated_tls(_stream: &mut TcpStream) {
+    // Nothing to write: the borrow is returned and the accept loop drops the
+    // owned socket, sending FIN. No handshake, no thread, no wait.
 }
 
 /// Reject one excess connection on the plaintext (redirect/ACME) listener
@@ -207,11 +215,10 @@ fn reject_saturated_tls(stream: TcpStream) {
 /// hitting the port-80 redirect while the server is saturated sees a clean
 /// "service unavailable", not a hang. Security headers are injected exactly
 /// as every other response gets them.
-fn reject_saturated_http(mut stream: TcpStream) {
+fn reject_saturated_http(stream: &mut TcpStream) {
     let peer = stream
         .peer_addr()
-        .map(|a| a.to_string())
-        .unwrap_or_else(|_| "unknown".to_string());
+        .map_or_else(|_| "unknown".to_string(), |a| a.to_string());
     if let Err(e) = stream.set_write_timeout(Some(WRITE_TIMEOUT)) {
         eprintln!("set_write_timeout failed during 503 reject: {e}");
     }
@@ -240,7 +247,7 @@ fn reject_saturated_http(mut stream: TcpStream) {
         path: "-".to_string(),
         session: None,
     }
-    .finish(503, started.elapsed().as_millis() as u64);
+    .finish(503, started.elapsed());
 }
 
 /// Read an env var or print a clear error and exit(1).
@@ -259,12 +266,11 @@ fn env_or_fail(name: &str, hint: &str) -> String {
 /// request → route through the middleware chain → respond.
 fn handle_tls_connection(
     stream: TcpStream,
-    config: Arc<rustls::ServerConfig>,
+    config: &Arc<rustls::ServerConfig>,
 ) {
     let peer = stream
         .peer_addr()
-        .map(|a| a.to_string())
-        .unwrap_or_else(|_| "unknown".to_string());
+        .map_or_else(|_| "unknown".to_string(), |a| a.to_string());
 
     // Bound slow-loris clients at the socket before TLS is layered on:
     // every blocked read on this socket now returns after READ_TIMEOUT of
@@ -286,7 +292,7 @@ fn handle_tls_connection(
     }
 
     // Wrap raw TCP stream in TLS FIRST.
-    let mut tls_stream = match tls::wrap(stream, config) {
+    let mut tls_stream = match tls::wrap(stream, Arc::clone(config)) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("TLS wrap error from {peer}: {e}");
@@ -321,7 +327,10 @@ fn handle_tls_connection(
 
         match http::parse_request(&buf) {
             http::ParseOutcome::Complete(req) => break req,
-            http::ParseOutcome::Incomplete => continue,
+            http::ParseOutcome::Incomplete => {
+                // Not a complete request yet — fall out of the match (the loop
+                // body's end) and read another chunk.
+            }
             http::ParseOutcome::Rejected(error_response) => {
                 // A request rejected during parsing never reached
                 // router::handle, which is the only place that normally runs
@@ -342,7 +351,7 @@ fn handle_tls_connection(
                 };
                 let response =
                     middleware::headers::inject(error_response);
-                send_response(&mut tls_stream, response, ctx, started);
+                send_response(&mut tls_stream, response, &ctx, started);
                 return;
             }
         }
@@ -356,7 +365,7 @@ fn handle_tls_connection(
     let path = request.path.clone();
 
     // Route through middleware chain and handlers.
-    let routed = router::handle(request);
+    let routed = router::handle(&request);
 
     let ctx = audit::AuditCtx {
         listener: "tls",
@@ -365,7 +374,7 @@ fn handle_tls_connection(
         path,
         session: routed.session,
     };
-    send_response(&mut tls_stream, routed.response, ctx, started);
+    send_response(&mut tls_stream, routed.response, &ctx, started);
 }
 
 /// Handle one plaintext HTTP connection on the redirect/ACME port.
@@ -373,15 +382,15 @@ fn handle_tls_connection(
 /// challenge fetches, which are served from the webroot.
 fn handle_http_connection(
     stream: TcpStream,
-    config: Arc<redirect::RedirectConfig>,
+    config: &Arc<redirect::RedirectConfig>,
 ) {
-    redirect::connection(stream, &config);
+    redirect::connection(stream, config);
 }
 
 fn send_response(
     stream: &mut tls::TlsStream,
     response: http::Response,
-    ctx: audit::AuditCtx,
+    ctx: &audit::AuditCtx,
     started: Instant,
 ) {
     // HEAD responses carry the GET headers (incl. Content-Length) but no
@@ -412,5 +421,5 @@ fn send_response(
     // Emit the audit line whether the write completed or stalled/errored: a
     // request that reached the point of a response still gets a record, and
     // the latency value distinguishes a clean send from a stalled one.
-    ctx.finish(status, started.elapsed().as_millis() as u64);
+    ctx.finish(status, started.elapsed());
 }
