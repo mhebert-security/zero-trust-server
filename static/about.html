@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Matthew Hebert · about</title>
-    <meta name="description" content="Matthew Hebert. From clinical nursing to computer science to OT/ICS security. Based in Toronto.">
+    <meta name="description" content="Matthew Hebert. Clinical nursing to computer security, building software small enough to trust. Based in Toronto.">
     <link rel="icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -23,28 +23,40 @@
     <main>
         <h1 class="page-title">about</h1>
         <p class="lead">
-            Nursing → computer science → cybersecurity. Five years of
-            clinical work taught me to expect failure and design around it.
-            Safety-critical systems demand that, and so does security.
+            I used to work somewhere the medication room was locked twice.
         </p>
         <p>
-            I carried a 3.9 GPA through computer science and am now charting
-            a master's in cybersecurity, pointed at OT/ICS defense.
+            Five years of clinical nursing. The two locks were the design:
+            people forget, people rush, and a single unlocked minute in that
+            room has a price nobody should pay. So the system did not trust
+            the person, it trusted the second lock. I carried that habit into
+            software, where the same sentence is true and the price is your
+            data.
         </p>
         <p>
-            The code I write stays small, explicable, and hostile to
-            dependencies, for the same reason the medication room was
-            locked twice.
+            That is why I write Rust, pointed at OT and ICS, the places where
+            a bug and a person can meet. The code stays small, readable, and
+            allergic to dependencies, for the same reason that room was
+            locked twice. A codebase you can hold in your head is one you can
+            reason about under stress. A dependency you cannot read is a
+            promise you cannot check.
         </p>
         <p>
-            Based in Toronto. I write in public as I go: poorly documented
-            ideas, honestly labeled, on the
+            I am comfortable saying what I know and what I do not. I know what
+            I have built, and you can read all of it, which is a better claim
+            than any credential. The parts of this field larger than a single
+            codebase are still ahead of me. I would rather say that plainly
+            than perform certainty.
+        </p>
+        <p>
+            Based in Toronto. I write about the route from that room to here
+            as it happens, unpolished and honestly labeled, on the
             <a href="/writing">writing</a> page.
         </p>
     </main>
 
     <footer class="page-footer">
-        served by <code>zero-trust-server</code> · std-only HTTP/1.1 · rustls TLS 1.3 · proof-of-work gated · no tracking
+        served by <code>zero-trust-server</code> · HTTP/1.1 from raw sockets · rustls TLS 1.3 · a proof of work gate · no tracking
     </footer>
 </body>
 </html>
