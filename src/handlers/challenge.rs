@@ -55,11 +55,12 @@ fn build_challenge_html(
     <link rel="stylesheet" href="/static/challenge.css">
 </head>
 <body>
+    <!-- Hidden via the #challenge-data rule in challenge.css, NOT an
+         inline style attribute — CSP style-src 'self' forbids those. -->
     <div id="challenge-data"
          data-nonce="{nonce}"
          data-nonce-sig="{nonce_sig}"
-         data-destination="{destination}"
-         style="display:none">
+         data-destination="{destination}">
     </div>
 
     <div class="container">

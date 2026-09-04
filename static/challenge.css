@@ -18,6 +18,13 @@ body {
     padding: 2rem;
 }
 
+/* #challenge-data only carries server-issued data attributes; it must
+ * never be painted. Hidden here in CSS so the challenge HTML needs no
+ * inline style attribute (CSP style-src 'self' forbids those). */
+#challenge-data {
+    display: none;
+}
+
 .status {
     font-size: 0.9rem;
     color: #94a3b8;

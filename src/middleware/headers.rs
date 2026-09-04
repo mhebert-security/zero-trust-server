@@ -9,11 +9,18 @@ pub fn inject(mut response: Response) -> Response {
     // the same origin. The WASM bundle is same-origin only.
     // If a third-party resource is ever needed, it must be
     // explicitly added here and the security implications reviewed.
+    //
+    // 'wasm-unsafe-eval' in script-src is required for the browser to
+    // compile/instantiate the WebAssembly PoW module. It permits WASM
+    // compilation ONLY — it does NOT allow JS eval() or Function().
+    // Without it, Chrome refuses WebAssembly.instantiateStreaming and the
+    // challenge gate fails closed for every real visitor (found via
+    // Playwright capture of the live site, 2026-09-03).
     response.headers.push((
         "Content-Security-Policy".to_string(),
         concat!(
             "default-src 'self'; ",
-            "script-src 'self'; ",
+            "script-src 'self' 'wasm-unsafe-eval'; ",
             "style-src 'self'; ",
             "img-src 'self'; ",
             "font-src 'self'; ",
