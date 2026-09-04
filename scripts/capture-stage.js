@@ -91,7 +91,14 @@ async function main() {
       });
 
       await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-      await page.waitForSelector('#challenge-data', { timeout: 15000 });
+      // 'attached', NOT 'visible': #challenge-data carries the nonce/route and
+      // is deliberately display:none (CSP style-src fix), so a visible-wait
+      // would always time out. Attached = the challenge gate has mounted with
+      // its data; the timeout below lets CSS paint the visible challenge UI.
+      await page.waitForSelector('#challenge-data', {
+        state: 'attached',
+        timeout: 15000,
+      });
       await page.waitForTimeout(600); // let CSS paint the initial frame
       await page.screenshot({ path: outFile });
 
