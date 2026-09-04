@@ -53,15 +53,26 @@ tar -C static -cf - . | ssh -p "$PORT" "${DEPLOY_USER}@$HOST" \
      mkdir -p $REMOTE_DIR/static && \
      tar -C $REMOTE_DIR/static -xf -"
 
+# The one-time NixOS migration (root-owned /etc/nixos + nftables + new
+# systemd unit) must upload the binary BEFORE `nixos-rebuild switch`, then let
+# the switch start the service under the new unit's env. NO_START=1 skips the
+# start + smoke so deploy.sh can be the upload half of that sequence.
+if [[ "${NO_START:-0}" == "1" ]]; then
+    echo "NO_START=1 — not starting service (NixOS switch will)."
+    exit 0
+fi
+
 echo "Starting service..."
 remote systemctl start zero-trust-server
 
 # Smoke test: the TLS listener binds 0.0.0.0:8443 (post-redirect), reachable
 # directly on loopback. Expect the challenge page (200). Skip with SMOKE=0.
+# Run via plain ssh, NOT sudo (curl is not a sudo-allowed command).
 if [[ "${SMOKE:-1}" == "1" ]]; then
     echo "Smoke-testing https://127.0.0.1:8443/ ..."
     sleep 1
-    code=$(remote "curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:8443/")
+    code=$(ssh -p "$PORT" "${DEPLOY_USER}@$HOST" \
+        "curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:8443/")
     echo "HTTP $code"
     if [[ "$code" != "200" ]]; then
         echo "Smoke test failed — check: remote systemctl status zero-trust-server" >&2
