@@ -36,11 +36,14 @@ pub fn inject(mut response: Response) -> Response {
     // Prevents SSL stripping attacks where an attacker downgrades
     // the connection from HTTPS to HTTP.
     // max-age=31536000 is exactly one year in seconds.
-    // → Open question: add includeSubDomains and preload once
-    //   the domain is stable. See headers.md.
+    // includeSubDomains + preload are now safe to send: the whole domain is
+    // HTTPS-only (port 80 is a 301 redirect — see redirect.rs) with no HTTP
+    // subdomains. NOTE: the preload directive only takes effect once the
+    // domain is submitted at https://hstspreload.org — a one-time manual
+    // step, still pending.
     response.headers.push((
         "Strict-Transport-Security".to_string(),
-        "max-age=31536000".to_string(),
+        "max-age=31536000; includeSubDomains; preload".to_string(),
     ));
 
     // X-Frame-Options.

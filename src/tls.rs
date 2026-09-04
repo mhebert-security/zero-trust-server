@@ -107,9 +107,14 @@ pub fn load_config(cert_path: &str, key_path: &str) -> Arc<ServerConfig> {
         .expect("Failed to read private key")
         .expect("No private key found in file");
 
-    // rustls defaults: TLS 1.3 preferred, TLS 1.2 minimum.
-    // No TLS 1.0, no TLS 1.1, no legacy cipher suites.
-    let config = ServerConfig::builder()
+    // Pin TLS 1.3 exclusively — no TLS 1.2 fallback at all.
+    // builder() would otherwise allow TLS 1.2 (and its legacy cipher
+    // suites) as a negotiated fallback; builder_with_protocol_versions
+    // restricts the offered/negotiated versions to exactly TLS 1.3,
+    // eliminating the entire TLS 1.2 attack surface. TLS 1.3 requires
+    // AEAD (no CBC), forward secrecy on every handshake, and no
+    // renegotiation — all desirable for a zero-trust endpoint.
+    let config = ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .expect("Failed to build TLS config");
