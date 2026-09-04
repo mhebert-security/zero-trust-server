@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Matthew Hebert · projects</title>
-    <meta name="description" content="zero-trust-server, the open source Rust HTTP/1.1 server behind mhebert.dev. TLS 1.3, a proof of work gate, and no unsafe.">
+    <meta name="description" content="Open source Rust. The proof of work gated HTTP/1.1 server behind this site, plus YARA rules, Sigma detections, and Modbus/DNP3 traffic analysis.">
+    <meta property="og:title" content="Matthew Hebert · projects">
+    <meta property="og:description" content="Open source Rust. The proof of work gated HTTP/1.1 server behind this site, plus YARA rules, Sigma detections, and Modbus/DNP3 traffic analysis.">
+    <meta property="og:url" content="https://mhebert.dev/projects">
     <link rel="icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -24,46 +27,76 @@
         <h1 class="page-title">projects</h1>
         <p class="lead">
             I build the things I rely on down to the last byte. You are reading
-            this page through the first one.
+            this page through the first one, and the code is public because the
+            claim requires it.
         </p>
 
-        <article class="proj">
-            <h3>zero-trust-server</h3>
-            <p class="tagline">A sane person would have used nginx.</p>
-            <p>
-                mhebert.dev is served by a web server I wrote in Rust, starting
-                at the TCP socket: the HTTP/1.1 parser, the rustls TLS
-                handshake, the session cookie, and the proof of work that stood
-                between you and this sentence. The code is public, and it has
-                to be. A server whose claim is that you can trust it cannot
-                hide the source and keep the claim.
-            </p>
-            <p>
-                The constraints are the pitch. TLS is pinned to 1.3 and handled
-                by rustls, one audited crate, rather than OpenSSL, which is a
-                second operating system. The parser is mine, not hyper's, so a
-                malformed request is a file I can open, not a library I must
-                trust. There is no unsafe in the server. Entry requires solving
-                a SHA-256 puzzle with twenty leading zero bits, a few seconds
-                for a person and an expensive habit at scale, and the cookie
-                that follows proves the puzzle was solved, never who solved it.
-                The server admits 128 connections at a time, gives each five
-                seconds, and caps solve attempts per IP address, so one loud
-                visitor cannot close the site for everyone else. Every request
-                writes one structured line to the journal. The site can be
-                asked what it did.
-            </p>
-            <p>
-                None of this was the efficient choice. A CDN in front of nginx
-                would have been live in an afternoon, watched by more eyes than
-                my code will ever have. That is the real cost of going by hand,
-                and the only honest answer to it is to hide nothing. Read the
-                code, find the flaw, tell me. The bet of this whole site is
-                that a person who can be checked is worth more than a product
-                that cannot.
-            </p>
-            <a class="repo" href="https://github.com/mhebert-security/zero-trust-server">github.com/mhebert-security/zero-trust-server</a>
-        </article>
+        <div class="proj-list">
+            <article class="proj">
+                <p class="status">ongoing</p>
+                <h3>zero-trust-server</h3>
+                <p class="tagline">A sane person would have used nginx.</p>
+                <p>
+                    A proof of work gate and a pass or fail cookie are a
+                    beginning, not a destination. The version this project is
+                    working toward takes years: nodes that issue and verify
+                    attestations with no central authority, an enclave that
+                    keeps the session key out of unprotected memory, a proof
+                    assistant checking the cryptographic core, proof of work
+                    that prices each request by the threat it carries instead
+                    of a fixed constant, and a session that is a signed set of
+                    permissions rather than a pass or fail. None of that is a
+                    roadmap; it is where the code already leans, and every
+                    step ships in the open.
+                </p>
+                <a class="repo" href="https://github.com/mhebert-security/zero-trust-server">github.com/mhebert-security/zero-trust-server</a>
+            </article>
+
+            <article class="proj">
+                <h3>modbus-dnp3-traffic-analysis</h3>
+                <p class="tagline">The write that can stop a line.</p>
+                <p>
+                    Modbus and DNP3 still move control traffic in the clear,
+                    built for a time when the network was a locked room. This
+                    project builds a baseline of normal traffic on those links
+                    and flags the message that does not belong, so the anomaly
+                    shows up while it is still a packet and not yet an outage.
+                    The detection starts from the physics of the place, not
+                    from a list of known attack names.
+                </p>
+                <a class="repo" href="https://github.com/mhebert-security/modbus-dnp3-traffic-analysis">github.com/mhebert-security/modbus-dnp3-traffic-analysis</a>
+            </article>
+
+            <article class="proj">
+                <h3>sigma-detections-attck</h3>
+                <p class="tagline">Rules that say what they caught.</p>
+                <p>
+                    A detection rule is only as trustworthy as the framework
+                    that names what it catches. Every Sigma rule here maps to
+                    a MITRE ATT&amp;CK technique, so a hit answers which stage
+                    of an intrusion it belongs to, and the rules are tested
+                    against real telemetry in a home SOC lab before they ship.
+                    Naming the part of the kill chain is how a single alert
+                    becomes a story an analyst can act on.
+                </p>
+                <a class="repo" href="https://github.com/mhebert-security/sigma-detections-attck">github.com/mhebert-security/sigma-detections-attck</a>
+            </article>
+
+            <article class="proj">
+                <h3>yara-rules-malware-detection</h3>
+                <p class="tagline">Code that describes code.</p>
+                <p>
+                    A hash tells you a file changed and nothing about why, and
+                    malware rewrites itself faster than any checksum can
+                    follow. These YARA rules describe the strings and
+                    structures a family keeps as it mutates, so a fresh sample
+                    still answers to the old name. They are written to run
+                    cheap, because the box doing the scan may be an edge
+                    device with better things to do.
+                </p>
+                <a class="repo" href="https://github.com/mhebert-security/yara-rules-malware-detection">github.com/mhebert-security/yara-rules-malware-detection</a>
+            </article>
+        </div>
     </main>
 
     <footer class="page-footer">

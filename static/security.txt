@@ -1,0 +1,5 @@
+# Security contact for mhebert.dev. If you found a flaw in the code,
+# the code repository and the report address are both public on purpose.
+Contact: mailto:admin@mhebert.dev
+Expires: 2027-09-04T00:00:00.000Z
+Preferred-Languages: en

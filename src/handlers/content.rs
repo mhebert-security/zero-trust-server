@@ -26,6 +26,41 @@ pub fn contact(_request: &Request) -> Response {
     html_response(include_str!("../../static/contact.html"))
 }
 
+/// Serve /robots.txt for crawlers.
+/// This is a public pre-gate route: a bot that must solve the puzzle to read
+/// the crawl rules would never crawl anything. The router calls it before the
+/// session check.
+pub fn robots() -> Response {
+    disk_asset("static/robots.txt", "text/plain; charset=utf-8")
+}
+
+/// Serve /.well-known/security.txt (RFC 9116) for security researchers.
+/// Also public pre-gate, for the same reason as robots.txt: the file is the
+/// address a researcher uses to report a flaw, and hiding that address
+/// behind the gate hides the way in. The file lives at static/security.txt;
+/// only the URL is /.well-known/security.txt.
+pub fn security_txt() -> Response {
+    disk_asset("static/security.txt", "text/plain; charset=utf-8")
+}
+
+/// Read a plain-text file from disk and serve it. Missing file becomes the
+/// standard 404 page. No cache: robots rules and a security contact must be
+/// read fresh, not from a stale copy.
+fn disk_asset(path: &str, content_type: &str) -> Response {
+    std::fs::read(path).map_or_else(
+        |_| not_found(),
+        |bytes| Response {
+            status: 200,
+            reason: "OK",
+            headers: vec![
+                ("Content-Type".to_string(), content_type.to_string()),
+                ("Cache-Control".to_string(), "no-cache".to_string()),
+            ],
+            body: bytes,
+        },
+    )
+}
+
 /// Serve a static asset from the /static/ path prefix.
 /// Path validation happens here — not in the router.
 /// Prevents directory traversal attacks.
@@ -90,7 +125,11 @@ fn html_response(html: &str) -> Response {
 }
 
 /// Standard 404 response.
-fn not_found() -> Response {
+/// The body is one sentence that reads like the site, not a bare reason
+/// line. Every miss is real: the server wrote the request into its journal.
+/// Shared by the router's catch-all so a gated unknown path and a missing
+/// asset answer in the same voice.
+pub fn not_found() -> Response {
     Response {
         status: 404,
         reason: "Not Found",
@@ -98,7 +137,7 @@ fn not_found() -> Response {
             "Content-Type".to_string(),
             "text/html; charset=utf-8".to_string(),
         )],
-        body: b"<html><body>404 Not Found</body></html>".to_vec(),
+        body: b"<html><body><p>Nothing lives at that address, and the server wrote your visit into its journal.</p></body></html>".to_vec(),
     }
 }
 

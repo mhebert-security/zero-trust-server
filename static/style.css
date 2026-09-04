@@ -294,6 +294,20 @@ h2.rule::after {
     margin: 0 0 1rem;
 }
 
+/* The small state label at the top of a card ("ongoing"). Lowercase, in the
+   one accent color, on a hairline of its own. */
+.proj .status {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.08em 0.6em;
+    margin-bottom: 0.9rem;
+}
+
 .proj .constraints {
     list-style: none;
     margin: 0 0 1.1rem;

@@ -57,6 +57,16 @@ body {
     display: none;
 }
 
+/* The one quiet paragraph under the status line. It is the only copy a
+   stranger reads before the gate opens, so it does the introducing. */
+.hint {
+    color: #666666;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    margin: 0.9rem auto 0;
+    max-width: 30rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .status::after {
         animation: none;

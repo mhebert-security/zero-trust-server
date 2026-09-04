@@ -82,6 +82,24 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
         };
     }
 
+    // /robots.txt — crawl rules. A crawler that had to solve the puzzle to
+    // read them would never crawl anything, so the file sits before the gate.
+    if is_get(&request.method) && request.path == "/robots.txt" {
+        return Routed {
+            response: headers::inject(content::robots()),
+            session: None,
+        };
+    }
+
+    // /.well-known/security.txt (RFC 9116) — the address a researcher uses
+    // to report a flaw. Hiding it behind the gate hides the way in.
+    if is_get(&request.method) && request.path == "/.well-known/security.txt" {
+        return Routed {
+            response: headers::inject(content::security_txt()),
+            session: None,
+        };
+    }
+
     // Step 1 — Session verification.
     // If the request does not carry a valid session cookie,
     // short-circuit immediately and serve the PoW challenge.
@@ -116,13 +134,9 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
         (true, "/writing") => content::writing(request),
         (true, "/contact") => content::contact(request),
 
-        // Catch-all — 404 for anything not explicitly listed.
-        _ => Response {
-            status: 404,
-            reason: "Not Found",
-            headers: Vec::new(),
-            body: b"404 Not Found".to_vec(),
-        },
+        // Catch-all — 404 for anything not explicitly listed. Shared with the
+        // static-asset miss handler so both answer in the same human voice.
+        _ => content::not_found(),
     };
 
     // Step 3 — Security header injection.
@@ -171,6 +185,59 @@ mod tests {
         assert!(has_header(resp, "Content-Security-Policy"));
         assert!(has_header(resp, "Strict-Transport-Security"));
         assert!(has_header(resp, "X-Content-Type-Options"));
+    }
+
+    #[test]
+    fn robots_and_security_txt_are_public_pre_gate() {
+        // Both machine-readable files must answer a cookie-less GET with 200
+        // and full security headers, exactly like /health: a crawler or a
+        // researcher never solves the puzzle first.
+        for path in ["/robots.txt", "/.well-known/security.txt"] {
+            let routed = handle(&request(Method::Get, path), None);
+            let resp = &routed.response;
+            assert_eq!(resp.status, 200, "{path} must serve pre-gate");
+            assert_eq!(routed.session, None, "{path} is a public route");
+            assert!(has_header(resp, "Content-Security-Policy"));
+            assert!(has_header(resp, "Strict-Transport-Security"));
+        }
+    }
+
+    #[test]
+    fn robots_and_security_serve_plain_text() {
+        let robots = handle(&request(Method::Get, "/robots.txt"), None);
+        assert!(robots
+            .response
+            .headers
+            .iter()
+            .any(|(n, v)| n == "Content-Type" && v == "text/plain; charset=utf-8"));
+        let sec = handle(&request(Method::Get, "/.well-known/security.txt"), None);
+        assert!(sec
+            .response
+            .headers
+            .iter()
+            .any(|(n, v)| n == "Content-Type" && v == "text/plain; charset=utf-8"));
+    }
+
+    #[test]
+    fn gated_404_body_reads_like_the_site_not_a_status_line() {
+        unsafe { std::env::set_var("SESSION_SECRET", "0123456789abcdef0123456789abcdef") }
+        let cookie = crate::middleware::session::issue_cookie().expect("cookie");
+        let zts = cookie.split(';').next().unwrap().to_string();
+        let mut headers = HashMap::new();
+        headers.insert("cookie".to_string(), zts);
+        let req = Request {
+            method: Method::Get,
+            path: "/not-a-page".to_string(),
+            headers,
+            body: Vec::new(),
+        };
+        let routed = handle(&req, None);
+        assert_eq!(routed.response.status, 404);
+        let body = String::from_utf8(routed.response.body).expect("utf-8");
+        assert!(body.contains("Nothing lives at that address"),
+                "the 404 body must be a human sentence");
+        assert!(!body.contains("404 Not Found"),
+                "the bare status text must not leak into the body");
     }
 
     #[test]

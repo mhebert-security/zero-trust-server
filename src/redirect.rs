@@ -193,7 +193,7 @@ fn not_found() -> Response {
         status: 404,
         reason: "Not Found",
         headers: Vec::new(),
-        body: b"404 Not Found".to_vec(),
+        body: b"Nothing lives at that address, and the server wrote your visit into its journal.".to_vec(),
     }
 }
 
