@@ -4,11 +4,14 @@
 //! (the NixOS unit sends stdout to journald — see configuration.nix
 //! StandardOutput=journal), parseable without a log parser:
 //!
-//!   audit  <`unix_ms`>  <listener>  <peer>  <method>  <path>  <status>  <session>  <`latency_ms`>
+//! ```text
+//! audit  <unix_ms>  <listener>  <peer>  <method>  <path>  <status>  <session>  <latency_ms>
+//! ```
 //!
 //! Fields are separated by a single TAB. journald already stamps arrival
 //! time on the line, but the leading `unix_ms` keeps the record self-contained
-//! and sortable if it is ever piped elsewhere. <session> is yes/no for
+//! and sortable if it is ever piped elsewhere. The `session` column is
+//! yes/no for
 //! requests that reached the session gate, and "na" where no session decision
 //! was possible (a request rejected before routing, a public pre-gate route,
 //! or the plaintext redirect/ACME listener which has no gate). Latency is
@@ -40,14 +43,18 @@ pub struct AuditCtx {
     pub method: String,
     pub path: String,
     /// Some(true/false) when the session gate ran; None where no session
-    /// decision exists (request rejected before routing, a public pre-gate
-    /// route such as /health, or the plaintext listener) — rendered "na".
+    /// decision exists, as for a request rejected before routing, a public
+    /// pre-gate route such as /health, or the plaintext listener. The audit
+    /// line renders None as "na".
     pub session: Option<bool>,
 }
 
 impl AuditCtx {
-    /// Complete and emit the audit line: status + elapsed time (request start
-    /// → last byte written) are only known here.
+    /// Complete and emit the audit line, pairing the response status with the
+    /// wall time from request start to last byte written, which only the send
+    /// path knows. It cannot validate those inputs, and a failing stdout
+    /// panics the print, which aborts the process under the release profile's
+    /// `panic = "abort"`.
     pub fn finish(&self, status: u16, elapsed: Duration) {
         println!("{}", self.line(status, ms_u64(elapsed)));
     }
@@ -74,7 +81,9 @@ impl AuditCtx {
     }
 }
 
-/// Human-readable name for a parsed method.
+/// Return the wire name (GET, HEAD, or POST) for a parsed method. The
+/// match is exhaustive and cannot fail; adding a new method without a
+/// matching arm is a compile error, which is the point.
 pub const fn method_name(m: &Method) -> &'static str {
     match m {
         Method::Get => "GET",
@@ -83,18 +92,20 @@ pub const fn method_name(m: &Method) -> &'static str {
     }
 }
 
-/// Best-effort method token from a raw request buffer, for requests that were
-/// rejected before they parsed into a Request (the first space-delimited token
-/// of the request line). Never fails — hostile input yields "-".
+/// Read the first space-delimited token of a raw request line as the
+/// method name, for requests rejected before they parsed. Returns "-"
+/// when the buffer is empty or the token is missing or over length, so
+/// hostile input cannot panic or forge a field.
 pub fn method_token(buf: &[u8]) -> String {
     let space = buf.iter().position(|&b| b == b' ');
     let token = space.map_or(buf, |i| &buf[..i]);
     token_string(token)
 }
 
-/// Best-effort path token from a raw request buffer (the second
-/// space-delimited token of the request line), for the same rejected-request
-/// case as [`method_token`]. "-" when absent or over-length.
+/// Read the second space-delimited token of a raw request line as the
+/// path, for requests rejected before they parsed. Returns "-" when the
+/// token is absent or over length; a present token may still carry
+/// control characters, which `sanitize` scrubs at emit time.
 pub fn path_token(buf: &[u8]) -> String {
     let first = buf.iter().position(|&b| b == b' ');
     let token = first.map_or(buf, |i| {

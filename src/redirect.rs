@@ -43,7 +43,12 @@ pub struct RedirectConfig {
     pub acme_webroot: Option<PathBuf>,
 }
 
-/// Serve one plaintext HTTP connection.
+/// Serve one plaintext request on the port-80 listener, answering an ACME
+/// token fetch from the webroot or otherwise redirecting to the HTTPS
+/// equivalent of the requested URL, then close the connection. A peer that
+/// stalls past the read timeout, or a header block that never terminates
+/// within the 8 KiB cap, ends the connection unanswered, and a socket error
+/// is logged to stderr before returning.
 pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
     let peer = stream
         .peer_addr()

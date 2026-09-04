@@ -139,4 +139,39 @@ mod tests {
                 .any(|(n, v)| n == "Content-Type" && v == "text/css")
         );
     }
+
+    #[test]
+    fn favicon_serves_200_with_icon_type() {
+        let r = static_asset("/static/favicon.ico");
+        assert_eq!(r.status, 200);
+        assert!(
+            r.headers
+                .iter()
+                .any(|(n, v)| n == "Content-Type" && v == "image/x-icon")
+        );
+        assert!(!r.body.is_empty(), "the icon carries image bytes");
+        // ICO container magic: reserved 00 00, type 01 00 (icon).
+        assert_eq!(&r.body[..4], &[0x00, 0x00, 0x01, 0x00]);
+    }
+
+    #[test]
+    fn every_page_head_declares_the_favicon() {
+        // A page without a declared icon makes the browser fall back to
+        // /favicon.ico, which 404s and pollutes the audit log on every load.
+        // All five gated pages must name the real asset.
+        let request = Request {
+            method: crate::http::Method::Get,
+            path: String::new(),
+            headers: std::collections::HashMap::new(),
+            body: Vec::new(),
+        };
+        for page in [index, about, projects, writing, contact] {
+            let response = page(&request);
+            let body = String::from_utf8(response.body).expect("html is utf-8");
+            assert!(
+                body.contains(r#"<link rel="icon" href="/static/favicon.ico">"#),
+                "page head must declare the favicon"
+            );
+        }
+    }
 }

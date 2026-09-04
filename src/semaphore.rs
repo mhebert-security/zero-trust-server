@@ -27,8 +27,9 @@ pub struct SemaphorePermit {
 }
 
 impl Semaphore {
-    /// Create a semaphore with `permits` available slots. Panics on zero —
-    /// a listener with zero capacity can never accept.
+    /// Create a semaphore with `permits` available slots. Panics when
+    /// `permits` is zero, because a listener with no capacity can never
+    /// accept a connection.
     pub fn new(permits: usize) -> Self {
         assert!(permits > 0, "Semaphore::new(0) has no capacity");
         Self {
@@ -36,11 +37,11 @@ impl Semaphore {
         }
     }
 
-    /// Try to take a permit without blocking. Returns None when all permits
-    /// are held — the caller decides how to answer the excess demand (the
-    /// accept loop in main.rs rejects it inline). `Arc<Self>` receiver so the
-    /// returned guard can own the Arc and release the permit after the
-    /// semaphore may have been dropped elsewhere.
+    /// Take a free permit without blocking and return the guard that releases
+    /// it when dropped. Returns None when every permit is taken, and the
+    /// accept loop then rejects the surplus connection instead of queueing.
+    /// The receiver is `&Arc<Self>` so the returned guard owns a clone and
+    /// can still release its slot after the semaphore itself is dropped.
     pub fn try_acquire_owned(self: &Arc<Self>) -> Option<SemaphorePermit> {
         let mut available = lock(&self.available);
         if *available == 0 {

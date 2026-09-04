@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use crate::http::{Method, Request, Response};
 use crate::middleware::{headers, session};
 use crate::handlers::{challenge, content};
@@ -18,13 +20,16 @@ pub struct Routed {
 
 /// Entry point for all request routing.
 /// Every request passes through here — no exceptions.
+/// `peer` is the client's address, threaded down to the endpoints that need
+/// it (the /pow/verify per-IP budget); it is None only when the connection
+/// layer could not resolve a socket address.
 ///
 /// Middleware order is fixed and deliberate:
 /// 1. Public endpoints (static assets + /pow/verify + /health) — pre-session
 /// 2. Session verification (`PoW` challenge gate)
 /// 3. Handler dispatch (method + path matching)
 /// 4. Security header injection (every response)
-pub fn handle(request: &Request) -> Routed {
+pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
     // Step 0 — Public endpoints reachable WITHOUT a session.
     // Three things are public before the gate: the static assets the
     // challenge page needs (CSS/JS/WASM), the PoW submission endpoint, and
@@ -49,10 +54,11 @@ pub fn handle(request: &Request) -> Routed {
     }
 
     // PoW solution submission — the only way an unverified visitor obtains a
-    // session. On success pow::verify returns 302 + Set-Cookie.
+    // session. On success pow::verify returns 302 + Set-Cookie; the client
+    // address feeds its per-IP rate budget.
     if request.method == Method::Post && request.path == "/pow/verify" {
         return Routed {
-            response: headers::inject(crate::middleware::pow::verify(request)),
+            response: headers::inject(crate::middleware::pow::verify(request, peer)),
             session: None,
         };
     }
@@ -157,7 +163,7 @@ mod tests {
         // No cookie, no session — /health still answers 200 for the monitor,
         // and the full security header set is applied. The gate did not run,
         // so the audit context is None ("na").
-        let routed = handle(&request(Method::Get, "/health"));
+        let routed = handle(&request(Method::Get, "/health"), None);
         let resp = &routed.response;
         assert_eq!(resp.status, 200);
         assert_eq!(resp.body, b"ok");
@@ -171,7 +177,7 @@ mod tests {
     fn head_health_matches_get() {
         // A monitor probing /health with HEAD (the common uptime pattern)
         // must get exactly what GET returns — routing is shared.
-        let routed = handle(&request(Method::Head, "/health"));
+        let routed = handle(&request(Method::Head, "/health"), None);
         let resp = &routed.response;
         assert_eq!(resp.status, 200);
         assert_eq!(resp.body, b"ok");
@@ -198,7 +204,7 @@ mod tests {
             body: Vec::new(),
         };
 
-        let routed = handle(&req);
+        let routed = handle(&req, None);
         let resp = &routed.response;
         assert_eq!(resp.status, 404);
         // A valid session reached the gate, which ruled true.
@@ -211,7 +217,7 @@ mod tests {
     fn unsessioned_page_request_is_gate_denied() {
         // No cookie on a gated page → the challenge is served and the audit
         // context records the gate ruled no.
-        let routed = handle(&request(Method::Get, "/"));
+        let routed = handle(&request(Method::Get, "/"), None);
         assert_eq!(routed.session, Some(false));
     }
 
@@ -228,7 +234,7 @@ mod tests {
             headers,
             body: Vec::new(),
         };
-        let routed = handle(&req);
+        let routed = handle(&req, None);
         let resp = &routed.response;
         assert_eq!(resp.status, 200);
         assert_eq!(routed.session, Some(true));

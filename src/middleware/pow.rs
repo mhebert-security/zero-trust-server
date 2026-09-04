@@ -1,3 +1,10 @@
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+use crate::crypto::{constant_time_eq, hmac_hex, sha256, to_hex};
 use crate::http::{Request, Response};
 use crate::middleware::session;
 
@@ -12,6 +19,29 @@ const DIFFICULTY: u32 = 20;
 /// After this window, the challenge must be re-requested.
 const CHALLENGE_TTL_SECS: u64 = 300; // 5 minutes
 
+/// Max /pow/verify submissions allowed per IP inside the rate window.
+/// A real solve costs the browser roughly a million SHA-256 hashes, so no
+/// honest client posts more than a handful per minute. Ten leaves room for a
+/// retry after a stalled page while stopping a single IP from hammering the
+/// endpoint at TCP speed. The eleventh attempt in a window answers 429.
+const VERIFY_RATE_LIMIT: u32 = 10;
+
+/// Width of the per-IP /pow/verify rate window.
+const VERIFY_RATE_WINDOW: Duration = Duration::from_secs(60);
+
+/// Cap on tracked IPs before stale windows are swept.
+/// A scanner spraying many source addresses opens one window each; without a
+/// bound the table would grow forever. Past the cap, each new submission
+/// drops the windows that have already fully elapsed.
+const MAX_TRACKED_IPS: usize = 4096;
+
+/// Per-IP submission counters for /pow/verify, keyed by client address.
+/// Each value is (submissions, window start). `OnceLock` because
+/// `HashMap::new` is not const: the first verify request builds the map, and
+/// every later request reuses it. The mutex serializes the one-thread-per-
+/// connection workers.
+static VERIFY_LIMITS: OnceLock<Mutex<HashMap<IpAddr, (u32, Instant)>>> = OnceLock::new();
+
 /// A parsed `PoW` solution submission from the browser.
 struct PowSubmission {
     /// The server-issued challenge nonce.
@@ -23,11 +53,23 @@ struct PowSubmission {
 }
 
 /// Verify a `PoW` solution submitted via POST /pow/verify.
-/// Called by router.rs when method=POST, path=/pow/verify.
+/// Called by router.rs when method=POST, path=/pow/verify, with the client's
+/// address so the endpoint can enforce its per-IP budget.
 ///
 /// On success: returns a 302 redirect with a session cookie.
-/// On failure: returns a 400 or 403 with no cookie.
-pub fn verify(request: &Request) -> Response {
+/// On failure: returns a 400 or 403 with no cookie, or 429 when the client
+/// has spent its allowance (see `VERIFY_RATE_LIMIT`).
+pub fn verify(request: &Request, peer: Option<IpAddr>) -> Response {
+    // Per-IP budget, checked before parsing: a client that spams malformed
+    // bodies still spends its allowance, so the cap cannot be dodged by never
+    // sending a well-formed submission. A request with no resolvable peer
+    // skips the check — a socket without an address is not a real client.
+    if let Some(ip) = peer
+        && rate_limited(ip)
+    {
+        return too_many_submissions();
+    }
+
     // Parse the submission from the request body.
     let Some(submission) = parse_submission(&request.body) else {
         return bad_submission();
@@ -59,7 +101,7 @@ pub fn verify(request: &Request) -> Response {
             status: 500,
             reason: "Internal Server Error",
             headers: Vec::new(),
-            body: b"Server configuration error".to_vec(),
+            body: b"The server is misconfigured. Try again in a few minutes.".to_vec(),
         };
     };
 
@@ -180,7 +222,7 @@ fn bad_submission() -> Response {
         status: 400,
         reason: "Bad Request",
         headers: Vec::new(),
-        body: b"Invalid PoW submission".to_vec(),
+        body: b"That proof of work did not verify. Reload the page for a fresh challenge.".to_vec(),
     }
 }
 
@@ -190,7 +232,63 @@ fn expired_challenge() -> Response {
         status: 403,
         reason: "Forbidden",
         headers: Vec::new(),
-        body: b"Challenge expired. Please refresh and try again.".to_vec(),
+        body: b"That challenge expired. Reload the page for a fresh one.".to_vec(),
+    }
+}
+
+/// Record one /pow/verify submission from `ip` and report whether the client
+/// is now over its allowance.
+/// Returns true when the submission must be refused (429). A window opens on
+/// a client's first submission and closes `VERIFY_RATE_WINDOW` later; a
+/// submission that arrives after the close opens a fresh window.
+fn rate_limited(ip: IpAddr) -> bool {
+    let now = Instant::now();
+    let mut table = verify_limits();
+
+    // Sweep expired windows only once the table is full, so steady traffic
+    // does not pay an O(n) pass per submission.
+    if table.len() >= MAX_TRACKED_IPS {
+        table.retain(|_, &mut (_, start)| now.duration_since(start) < VERIFY_RATE_WINDOW);
+    }
+
+    match table.entry(ip) {
+        Entry::Occupied(mut entry) => {
+            let (count, start) = entry.get_mut();
+            if now.duration_since(*start) >= VERIFY_RATE_WINDOW {
+                // Previous window has fully elapsed: this submission opens a
+                // fresh one instead of counting against the old budget.
+                *count = 1;
+                *start = now;
+                false
+            } else if *count >= VERIFY_RATE_LIMIT {
+                true
+            } else {
+                *count += 1;
+                false
+            }
+        }
+        Entry::Vacant(entry) => {
+            entry.insert((1, now));
+            false
+        }
+    }
+}
+
+/// Lock the shared per-IP table, treating a poisoned mutex as unlocked.
+fn verify_limits() -> std::sync::MutexGuard<'static, HashMap<IpAddr, (u32, Instant)>> {
+    VERIFY_LIMITS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 429 response when a client has spent its per-IP allowance.
+fn too_many_submissions() -> Response {
+    Response {
+        status: 429,
+        reason: "Too Many Requests",
+        headers: Vec::new(),
+        body: b"Too many solve attempts. Wait a minute and try again.".to_vec(),
     }
 }
 
@@ -214,157 +312,6 @@ fn generate_random_hex() -> String {
     to_hex(&buf)
 }
 
-/// Encode a byte slice as a lowercase hex string.
-/// Mirrors the `to_hex` in session.rs — shared crypto utilities will be
-/// extracted to a crypto module in a future refactor.
-/// → Future issue: extract shared crypto to crypto.rs
-fn to_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        out.push(HEX[(b >> 4) as usize] as char);
-        out.push(HEX[(b & 0x0f) as usize] as char);
-    }
-    out
-}
-
-/// Compute HMAC-SHA256 and return as a hex string.
-/// Duplicated from session.rs — shared crypto utilities
-/// will be extracted to a crypto module in a future refactor.
-/// → Future issue: extract shared crypto to crypto.rs
-fn hmac_hex(key: &[u8], message: &[u8]) -> String {
-    let digest = hmac_sha256(key, message);
-    to_hex(&digest)
-}
-
-/// HMAC-SHA256 — duplicated from session.rs pending extraction.
-fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
-    const BLOCK_SIZE: usize = 64;
-    const OPAD: u8 = 0x5c;
-    const IPAD: u8 = 0x36;
-
-    let mut k_prime = [0u8; BLOCK_SIZE];
-    if key.len() > BLOCK_SIZE {
-        let hashed = sha256(key);
-        k_prime[..32].copy_from_slice(&hashed);
-    } else {
-        k_prime[..key.len()].copy_from_slice(key);
-    }
-
-    let mut inner_input = Vec::with_capacity(BLOCK_SIZE + message.len());
-    for b in &k_prime { inner_input.push(b ^ IPAD); }
-    inner_input.extend_from_slice(message);
-    let inner_hash = sha256(&inner_input);
-
-    let mut outer_input = Vec::with_capacity(BLOCK_SIZE + 32);
-    for b in &k_prime { outer_input.push(b ^ OPAD); }
-    outer_input.extend_from_slice(&inner_hash);
-
-    sha256(&outer_input)
-}
-
-/// SHA-256 — duplicated from session.rs pending extraction.
-/// Working registers `a`..`h`, schedule `W`, constants `K` follow FIPS 180-4
-/// notation (see the session.rs copy's rationale) — single-letter names are
-/// deliberate.
-#[allow(clippy::many_single_char_names)]
-fn sha256(message: &[u8]) -> [u8; 32] {
-    let mut h: [u32; 8] = [
-        0x6a09_e667, 0xbb67_ae85, 0x3c6e_f372, 0xa54f_f53a,
-        0x510e_527f, 0x9b05_688c, 0x1f83_d9ab, 0x5be0_cd19,
-    ];
-    let k: [u32; 64] = [
-        0x428a_2f98, 0x7137_4491, 0xb5c0_fbcf, 0xe9b5_dba5,
-        0x3956_c25b, 0x59f1_11f1, 0x923f_82a4, 0xab1c_5ed5,
-        0xd807_aa98, 0x1283_5b01, 0x2431_85be, 0x550c_7dc3,
-        0x72be_5d74, 0x80de_b1fe, 0x9bdc_06a7, 0xc19b_f174,
-        0xe49b_69c1, 0xefbe_4786, 0x0fc1_9dc6, 0x240c_a1cc,
-        0x2de9_2c6f, 0x4a74_84aa, 0x5cb0_a9dc, 0x76f9_88da,
-        0x983e_5152, 0xa831_c66d, 0xb003_27c8, 0xbf59_7fc7,
-        0xc6e0_0bf3, 0xd5a7_9147, 0x06ca_6351, 0x1429_2967,
-        0x27b7_0a85, 0x2e1b_2138, 0x4d2c_6dfc, 0x5338_0d13,
-        0x650a_7354, 0x766a_0abb, 0x81c2_c92e, 0x9272_2c85,
-        0xa2bf_e8a1, 0xa81a_664b, 0xc24b_8b70, 0xc76c_51a3,
-        0xd192_e819, 0xd699_0624, 0xf40e_3585, 0x106a_a070,
-        0x19a4_c116, 0x1e37_6c08, 0x2748_774c, 0x34b0_bcb5,
-        0x391c_0cb3, 0x4ed8_aa4a, 0x5b9c_ca4f, 0x682e_6ff3,
-        0x748f_82ee, 0x78a5_636f, 0x84c8_7814, 0x8cc7_0208,
-        0x90be_fffa, 0xa450_6ceb, 0xbef9_a3f7, 0xc671_78f2,
-    ];
-
-    let bit_len = (message.len() as u64).wrapping_mul(8);
-    let mut padded = message.to_vec();
-    padded.push(0x80);
-    while padded.len() % 64 != 56 { padded.push(0x00); }
-    padded.extend_from_slice(&bit_len.to_be_bytes());
-
-    for chunk in padded.chunks(64) {
-        let mut w = [0u32; 64];
-        for i in 0..16 {
-            w[i] = u32::from_be_bytes([
-                chunk[i*4], chunk[i*4+1],
-                chunk[i*4+2], chunk[i*4+3],
-            ]);
-        }
-        for i in 16..64 {
-            let s0 = w[i-15].rotate_right(7)
-                ^ w[i-15].rotate_right(18)
-                ^ (w[i-15] >> 3);
-            let s1 = w[i-2].rotate_right(17)
-                ^ w[i-2].rotate_right(19)
-                ^ (w[i-2] >> 10);
-            w[i] = w[i-16].wrapping_add(s0)
-                .wrapping_add(w[i-7])
-                .wrapping_add(s1);
-        }
-
-        let [mut a, mut b, mut c, mut d,
-             mut e, mut f, mut g, mut hh] = h;
-        for i in 0..64 {
-            let s1 = e.rotate_right(6)
-                ^ e.rotate_right(11)
-                ^ e.rotate_right(25);
-            let ch = (e & f) ^ ((!e) & g);
-            let temp1 = hh.wrapping_add(s1)
-                .wrapping_add(ch)
-                .wrapping_add(k[i])
-                .wrapping_add(w[i]);
-            let s0 = a.rotate_right(2)
-                ^ a.rotate_right(13)
-                ^ a.rotate_right(22);
-            let maj = (a & b) ^ (a & c) ^ (b & c);
-            let temp2 = s0.wrapping_add(maj);
-            hh = g; g = f; f = e;
-            e = d.wrapping_add(temp1);
-            d = c; c = b; b = a;
-            a = temp1.wrapping_add(temp2);
-        }
-        h[0] = h[0].wrapping_add(a);
-        h[1] = h[1].wrapping_add(b);
-        h[2] = h[2].wrapping_add(c);
-        h[3] = h[3].wrapping_add(d);
-        h[4] = h[4].wrapping_add(e);
-        h[5] = h[5].wrapping_add(f);
-        h[6] = h[6].wrapping_add(g);
-        h[7] = h[7].wrapping_add(hh);
-    }
-
-    let mut digest = [0u8; 32];
-    for (i, word) in h.iter().enumerate() {
-        digest[i*4..(i+1)*4].copy_from_slice(&word.to_be_bytes());
-    }
-    digest
-}
-
-/// Constant-time comparison — duplicated from session.rs.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() { return false; }
-    let result: u8 = a.iter()
-        .zip(b.iter())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y));
-    result == 0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,21 +326,6 @@ mod tests {
     fn set_secret() {
         // edition 2024 makes env mutation unsafe — established idiom.
         unsafe { std::env::set_var("SESSION_SECRET", TEST_SECRET) }
-    }
-
-    /// FIPS 180-4 §B.1: `SHA-256("abc")`. This is the cross-check for the
-    /// `pow.rs` duplicate of the from-scratch implementation — `session.rs`'s
-    /// independent copy is asserted against the same vector there, so a bug
-    /// or typo present in both copies is still caught by the known answer.
-    #[test]
-    fn sha256_matches_fips_abc_vector() {
-        let expected: [u8; 32] = [
-            0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea,
-            0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
-            0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
-            0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad,
-        ];
-        assert_eq!(sha256(b"abc"), expected);
     }
 
     /// Brute-force a candidate that satisfies the CURRENT difficulty for a
@@ -424,6 +356,14 @@ mod tests {
         }
     }
 
+    /// Dedicated source addresses so the limiter's shared map never sees two
+    /// tests writing the same key concurrently (test threads run in parallel).
+    const REPLAY_IP: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1));
+
+    fn ip(a: u8, b: u8, c: u8, d: u8) -> IpAddr {
+        IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d))
+    }
+
     /// Documents known gap #14: `pow::verify` is stateless — no record of
     /// used nonces is kept, so replaying the SAME valid submission within the
     /// nonce TTL (300s) succeeds twice, minting a second session cookie.
@@ -436,13 +376,63 @@ mod tests {
         let (nonce, sig) = generate_challenge().expect("secret configured → challenge issued");
         let candidate = solve(&nonce);
 
-        let first = verify(&post_request(&nonce, &sig, candidate));
-        let second = verify(&post_request(&nonce, &sig, candidate));
+        let first = verify(&post_request(&nonce, &sig, candidate), Some(REPLAY_IP));
+        let second = verify(&post_request(&nonce, &sig, candidate), Some(REPLAY_IP));
 
         assert_eq!(first.status, 302, "first submission must succeed");
         assert_eq!(second.status, 302, "replayed submission also succeeds — gap #14");
         let has_cookie = |r: &Response| r.headers.iter().any(|(n, _)| n == "Set-Cookie");
         assert!(has_cookie(&first), "first response sets a session cookie");
         assert!(has_cookie(&second), "replayed response sets another session cookie");
+    }
+
+    /// A client inside its allowance keeps getting 302s; the first submission
+    /// past the allowance gets 429. Exercises the full handler path with a
+    /// dedicated source address so no other test shares its budget.
+    #[test]
+    fn verify_exhausts_per_ip_allowance_then_returns_429() {
+        set_secret();
+        let source = ip(10, 55, 0, 1);
+        let (nonce, sig) = generate_challenge().expect("secret configured → challenge issued");
+        let candidate = solve(&nonce);
+
+        // Each call replays the same valid solve (gap #14: used nonces are not
+        // tracked), so the loop is only counting submissions against the IP.
+        for _ in 0..VERIFY_RATE_LIMIT {
+            let response = verify(&post_request(&nonce, &sig, candidate), Some(source));
+            assert_eq!(response.status, 302, "within the allowance, verify grants a session");
+        }
+
+        let over = verify(&post_request(&nonce, &sig, candidate), Some(source));
+        assert_eq!(over.status, 429, "past the allowance, verify answers 429");
+    }
+
+    /// A client whose window has fully elapsed is not throttled: the budget
+    /// resets when the old window closes. The entry's start is pushed back
+    /// past `VERIFY_RATE_WINDOW` to simulate the clock moving on without a
+    /// sixty-second sleep in the test.
+    #[test]
+    fn expired_window_resets_a_clients_allowance() {
+        let source = ip(10, 55, 0, 2);
+        assert!(!rate_limited(source), "first submission opens the window");
+        for _ in 1..VERIFY_RATE_LIMIT {
+            assert!(!rate_limited(source), "submissions inside the window are allowed");
+        }
+        assert!(rate_limited(source), "the submission at the limit is refused");
+
+        // Age the entry out by one full window.
+        {
+            let mut table = verify_limits();
+            let (_, start) = table.get_mut(&source).expect("entry exists for the aged client");
+            let older = start
+                .checked_sub(VERIFY_RATE_WINDOW)
+                .expect("the window start stays within the monotonic clock");
+            *start = older;
+            // The mutation is done; release the guard before the block ends so
+            // a parallel test never waits on a guard held for no further work.
+            drop(table);
+        }
+
+        assert!(!rate_limited(source), "a fresh window opens once the old one closes");
     }
 }

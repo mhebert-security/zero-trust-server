@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>projects — Matthew Hebert</title>
-    <meta name="description" content="Selected work — zero-trust-server (std-only Rust HTTP/1.1, this site's engine) and a kernel driver in progress.">
-    <link rel="icon" href="data:,">
+    <title>Matthew Hebert · projects</title>
+    <meta name="description" content="Selected work by Matthew Hebert. zero-trust-server, a stdlib-only Rust HTTP/1.1 server, runs this site.">
+    <link rel="icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="page">
@@ -31,12 +31,12 @@
             <article class="proj">
                 <h3>zero-trust-server</h3>
                 <p class="tagline">
-                    A zero-trust HTTP/1.1 server in stdlib-only Rust — the
-                    software serving this very page.
+                    Rust from the raw TCP socket up. HTTP/1.1, TLS 1.3, a
+                    proof-of-work gate, and no unsafe.
                 </p>
                 <ul class="constraints">
-                    <li>HTTP/1.1 parsed and served from raw TCP sockets — no framework, no <code>hyper</code></li>
-                    <li>TLS 1.3 only, via rustls — never OpenSSL</li>
+                    <li>HTTP/1.1 parsed and served from raw TCP sockets, no framework, no <code>hyper</code></li>
+                    <li>TLS 1.3 only, via rustls, never OpenSSL</li>
                     <li>every visitor solves a SHA-256 proof-of-work gate before one byte of content</li>
                     <li>no <code>unsafe</code> anywhere in the server code</li>
                     <li>session cookies HMAC-SHA256 · <code>HttpOnly</code> · <code>SameSite=Strict</code></li>
@@ -44,21 +44,6 @@
                     <li>a structured audit-log line for every request</li>
                 </ul>
                 <a class="repo" href="https://github.com/mhebert-security/zero-trust-server">github.com/mhebert-security/zero-trust-server</a>
-            </article>
-
-            <!-- TODO(operator): give phantom a real one-liner + constraint
-                 before the first deploy of this page. Nothing is claimed
-                 here that isn't true of the public record. -->
-            <article class="proj">
-                <h3>phantom <span class="faint">— kernel driver</span></h3>
-                <p class="tagline">
-                    Kernel-mode work, unreleased. The write-up ships when the
-                    code does.
-                </p>
-                <ul class="constraints">
-                    <li>status: unreleased — source private for now</li>
-                </ul>
-                <p class="faint">Source released when it is in a shareable state.</p>
             </article>
         </div>
     </main>

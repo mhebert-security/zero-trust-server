@@ -10,7 +10,7 @@ pub fn serve(request: &Request) -> Response {
                 "Content-Type".to_string(),
                 "text/html; charset=utf-8".to_string(),
             )],
-            body: b"Server configuration error.".to_vec(),
+            body: b"The server is misconfigured. Try again in a few minutes.".to_vec(),
         };
     };
 
@@ -47,9 +47,13 @@ fn build_challenge_html(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verifying — Matthew Hebert</title>
+    <title>Matthew Hebert · verifying</title>
     <!-- External stylesheet: CSP style-src 'self' forbids inline <style>. -->
     <link rel="stylesheet" href="/static/challenge.css">
+    <!-- Favicon is self-hosted like every other byte on this site. Without a
+         real icon the browser falls back to /favicon.ico and 404s on every
+         load, polluting the audit log. -->
+    <link rel="icon" href="/static/favicon.ico">
 </head>
 <body>
     <!-- Hidden via the #challenge-data rule in challenge.css, NOT an

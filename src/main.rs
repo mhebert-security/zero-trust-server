@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod audit;
+mod crypto;
 mod tls;
 mod http;
 mod router;
@@ -232,7 +233,7 @@ fn reject_saturated_http(stream: &mut TcpStream) {
             "Content-Type".to_string(),
             "text/plain; charset=utf-8".to_string(),
         )],
-        body: b"503 Service Unavailable".to_vec(),
+        body: b"The server is at capacity. Try again in a moment.".to_vec(),
     };
     let bytes = middleware::headers::inject(response).into_bytes(false);
     if let Err(e) = stream.write_all(&bytes) {
@@ -268,9 +269,14 @@ fn handle_tls_connection(
     stream: TcpStream,
     config: &Arc<rustls::ServerConfig>,
 ) {
-    let peer = stream
-        .peer_addr()
-        .map_or_else(|_| "unknown".to_string(), |a| a.to_string());
+    let peer_addr = stream.peer_addr().ok();
+    let peer = peer_addr
+        .as_ref()
+        .map_or_else(|| "unknown".to_string(), std::string::ToString::to_string);
+    // Client address for the per-IP budgets (the /pow/verify rate limit).
+    // None when the socket has no resolvable address; those requests skip
+    // the rate check rather than sharing one anonymous bucket.
+    let peer_ip = peer_addr.map(|addr| addr.ip());
 
     // Bound slow-loris clients at the socket before TLS is layered on:
     // every blocked read on this socket now returns after READ_TIMEOUT of
@@ -365,7 +371,7 @@ fn handle_tls_connection(
     let path = request.path.clone();
 
     // Route through middleware chain and handlers.
-    let routed = router::handle(&request);
+    let routed = router::handle(&request, peer_ip);
 
     let ctx = audit::AuditCtx {
         listener: "tls",
