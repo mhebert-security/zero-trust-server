@@ -15,6 +15,11 @@ const MAX_BODY_SIZE: usize = 65536; // 64KB
 #[derive(Debug, PartialEq)]
 pub enum Method {
     Get,
+    /// Routed exactly like GET but answered bodyless (RFC 9110: HEAD must be
+    /// supported wherever GET is, returning the GET headers — including
+    /// Content-Length — minus the body). The router treats it as GET; the
+    /// serializer suppresses the body at the wire (see Response::into_bytes).
+    Head,
     Post,
 }
 
@@ -37,10 +42,20 @@ pub struct Response {
 }
 
 impl Response {
-    /// Serialise the response into bytes suitable for writing
-    /// directly to a TlsStream.
-    /// Format: status line + headers + blank line + body.
-    pub fn into_bytes(self) -> Vec<u8> {
+    /// Serialise the response into bytes suitable for writing directly to a
+    /// TlsStream. This is the SINGLE wire funnel every response flows through
+    /// — per-request framing lives here and only here:
+    ///
+    ///   * Content-Length always reflects the full body length. For a HEAD
+    ///     response (`head == true`) the length is that of the body a GET
+    ///     would have carried, but the body bytes themselves are omitted
+    ///     (RFC 9110 §9.3.2).
+    ///   * `Connection: close` is always announced. The server answers at
+    ///     most one request per connection and then closes it, so every
+    ///     response — 200, 301, 404, 405, 413, 503, … — must say so rather
+    ///     than leave a client expecting keep-alive. No caller may add the
+    ///     header itself (nor Content-Length): that would duplicate it.
+    pub fn into_bytes(self, head: bool) -> Vec<u8> {
         let mut out = Vec::new();
 
         // Status line
@@ -56,16 +71,22 @@ impl Response {
             );
         }
 
-        // Content-Length is always set — required by HTTP/1.1
+        // Content-Length is always set — required by HTTP/1.1, and for HEAD
+        // it is the length the corresponding GET would have sent.
         out.extend_from_slice(
             format!("Content-Length: {}\r\n", self.body.len()).as_bytes(),
         );
 
+        out.extend_from_slice(b"Connection: close\r\n");
+
         // Blank line separates headers from body
         out.extend_from_slice(b"\r\n");
 
-        // Body
-        out.extend_from_slice(&self.body);
+        // Body — suppressed for HEAD (headers above already carried its
+        // length).
+        if !head {
+            out.extend_from_slice(&self.body);
+        }
 
         out
     }
@@ -86,7 +107,7 @@ impl Response {
             status: 405,
             reason: "Method Not Allowed",
             headers: vec![
-                ("Allow".to_string(), "GET, POST".to_string()),
+                ("Allow".to_string(), "GET, HEAD, POST".to_string()),
             ],
             body: b"405 Method Not Allowed".to_vec(),
         }
@@ -173,6 +194,7 @@ pub fn parse_request(buf: &[u8]) -> ParseOutcome {
 
     let method = match parts.next() {
         Some("GET") => Method::Get,
+        Some("HEAD") => Method::Head,
         Some("POST") => Method::Post,
         Some(_) => return ParseOutcome::Rejected(Response::method_not_allowed()),
         None => return ParseOutcome::Rejected(Response::bad_request()),
@@ -345,11 +367,12 @@ mod tests {
 
     #[test]
     fn unsupported_method_is_rejected_405() {
-        // HEAD, PUT, DELETE, OPTIONS … are rejected at parse time. This is
-        // the response main.rs must run through headers::inject before
-        // sending (it never reaches router::handle) — that was the "405s skip
+        // PUT, DELETE, OPTIONS … are rejected at parse time. (HEAD is not in
+        // the list — it now parses; see head_parses_as_head.) This is the
+        // response main.rs must run through headers::inject before sending
+        // (it never reaches router::handle) — that was the "405s skip
         // security headers" bypass.
-        for method in ["HEAD", "PUT", "DELETE", "OPTIONS", "PATCH"] {
+        for method in ["PUT", "DELETE", "OPTIONS", "PATCH"] {
             let req = format!("{method} / HTTP/1.1\r\nHost: mhebert.dev\r\n\r\n");
             match parse_request(req.as_bytes()) {
                 ParseOutcome::Rejected(r) => {
@@ -361,6 +384,55 @@ mod tests {
                 }
                 other => panic!("{method} should be Rejected(405), got {other:?}"),
             }
+        }
+    }
+
+    #[test]
+    fn head_parses_as_head() {
+        // HEAD is a first-class method now (RFC 9110), not a 405.
+        let buf = b"HEAD / HTTP/1.1\r\nHost: mhebert.dev\r\n\r\n";
+        match parse_request(buf.as_ref()) {
+            ParseOutcome::Complete(req) => {
+                assert_eq!(req.method, Method::Head);
+                assert_eq!(req.path, "/");
+                assert!(req.body.is_empty());
+            }
+            other => panic!("HEAD should parse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn serialization_sets_content_length_and_connection_close() {
+        let full = sample_response().into_bytes(false);
+        let s = String::from_utf8_lossy(&full);
+        assert!(s.contains("Content-Length: 2\r\n"), "got: {s}");
+        assert!(
+            s.contains("Connection: close\r\n"),
+            "every response must announce close, got: {s}"
+        );
+        assert!(full.ends_with(b"hi"));
+    }
+
+    #[test]
+    fn head_serialization_keeps_length_drops_body() {
+        // HEAD must carry the GET Content-Length but no body bytes — and the
+        // two wire images differ only by the omitted body.
+        let full = sample_response().into_bytes(false);
+        let head = sample_response().into_bytes(true);
+
+        assert!(String::from_utf8_lossy(&head).contains("Content-Length: 2\r\n"));
+        assert!(!head.ends_with(b"hi"));
+        assert_eq!(full.len(), head.len() + 2, "HEAD image = GET image minus body");
+    }
+
+    fn sample_response() -> Response {
+        Response {
+            status: 200,
+            reason: "OK",
+            headers: vec![
+                ("Content-Type".to_string(), "text/plain; charset=utf-8".to_string()),
+            ],
+            body: b"hi".to_vec(),
         }
     }
 }

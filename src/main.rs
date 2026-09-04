@@ -3,8 +3,9 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+mod audit;
 mod tls;
 mod http;
 mod router;
@@ -207,22 +208,39 @@ fn reject_saturated_tls(stream: TcpStream) {
 /// "service unavailable", not a hang. Security headers are injected exactly
 /// as every other response gets them.
 fn reject_saturated_http(mut stream: TcpStream) {
+    let peer = stream
+        .peer_addr()
+        .map(|a| a.to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
     if let Err(e) = stream.set_write_timeout(Some(WRITE_TIMEOUT)) {
         eprintln!("set_write_timeout failed during 503 reject: {e}");
     }
+    let started = Instant::now();
     let response = http::Response {
         status: 503,
         reason: "Service Unavailable",
-        headers: vec![
-            ("Content-Type".to_string(), "text/plain; charset=utf-8".to_string()),
-            ("Connection".to_string(), "close".to_string()),
-        ],
+        // Connection: close is NOT set here — into_bytes (the single wire
+        // funnel) adds it to every response.
+        headers: vec![(
+            "Content-Type".to_string(),
+            "text/plain; charset=utf-8".to_string(),
+        )],
         body: b"503 Service Unavailable".to_vec(),
     };
-    let bytes = middleware::headers::inject(response).into_bytes();
+    let bytes = middleware::headers::inject(response).into_bytes(false);
     if let Err(e) = stream.write_all(&bytes) {
         eprintln!("503 reject write failed: {e}");
     }
+    // Saturation is an incident, not background noise — the audit line makes
+    // it visible: method/path are "-" (no request was read) and session "na".
+    audit::AuditCtx {
+        listener: "http80",
+        peer,
+        method: "-".to_string(),
+        path: "-".to_string(),
+        session: None,
+    }
+    .finish(503, started.elapsed().as_millis() as u64);
 }
 
 /// Read an env var or print a clear error and exit(1).
@@ -276,6 +294,11 @@ fn handle_tls_connection(
         }
     };
 
+    // Latency is measured from handler start (first byte read) to the last
+    // byte written, so a slow request body or a stalled write shows up as a
+    // high latency value in the audit log.
+    let started = Instant::now();
+
     // Read the full request from the TLS stream.
     // A single read() can return only part of a request — TLS records and
     // TCP segments split large requests (notably POST bodies) across
@@ -302,24 +325,47 @@ fn handle_tls_connection(
             http::ParseOutcome::Rejected(error_response) => {
                 // A request rejected during parsing never reached
                 // router::handle, which is the only place that normally runs
-                // headers::inject. Unsupported methods (HEAD, PUT, DELETE …)
+                // headers::inject. Unsupported methods (PUT, DELETE, …)
                 // produce a 405 here, so those responses were being sent raw
                 // with NO security headers — a real bypass. Inject them now:
                 // every response on this listener must carry them.
                 // → GitHub issue: 405s skipping headers::inject.
+                //
+                // Method/path are best-effort from the raw buffer (the
+                // request never parsed) and the session gate never ran → na.
+                let ctx = audit::AuditCtx {
+                    listener: "tls",
+                    peer,
+                    method: audit::method_token(&buf),
+                    path: audit::path_token(&buf),
+                    session: None,
+                };
                 let response =
                     middleware::headers::inject(error_response);
-                send_response(&mut tls_stream, response, &peer);
+                send_response(&mut tls_stream, response, ctx, started);
                 return;
             }
         }
     };
 
-    // Route through middleware chain and handlers.
-    let response = router::handle(request);
+    // Capture the audit fields before the request is moved into routing: the
+    // method's name and the path it asked for. Session presence is only known
+    // once the gate runs inside router::handle, which returns it alongside
+    // the response (Routed).
+    let method = audit::method_name(&request.method).to_string();
+    let path = request.path.clone();
 
-    // Send the response.
-    send_response(&mut tls_stream, response, &peer);
+    // Route through middleware chain and handlers.
+    let routed = router::handle(request);
+
+    let ctx = audit::AuditCtx {
+        listener: "tls",
+        peer,
+        method,
+        path,
+        session: routed.session,
+    };
+    send_response(&mut tls_stream, routed.response, ctx, started);
 }
 
 /// Handle one plaintext HTTP connection on the redirect/ACME port.
@@ -335,10 +381,14 @@ fn handle_http_connection(
 fn send_response(
     stream: &mut tls::TlsStream,
     response: http::Response,
-    peer: &str,
+    ctx: audit::AuditCtx,
+    started: Instant,
 ) {
+    // HEAD responses carry the GET headers (incl. Content-Length) but no
+    // body — the serializer strips it given this flag.
+    let head = ctx.method == "HEAD";
     let status = response.status;
-    let bytes = response.into_bytes();
+    let bytes = response.into_bytes(head);
 
     // Drain the full body. rustls Write may accept only part of a large
     // response per call (and the write timeout added in main.rs means a call
@@ -348,15 +398,19 @@ fn send_response(
     while sent < bytes.len() {
         match stream.write(&bytes[sent..]) {
             Ok(0) => {
-                eprintln!("Write stalled to {peer}: 0 bytes accepted");
-                return;
+                eprintln!("Write stalled to {}: 0 bytes accepted", ctx.peer);
+                break;
             }
             Ok(n) => sent += n,
             Err(e) => {
-                eprintln!("Write error to {peer}: {e}");
-                return;
+                eprintln!("Write error to {}: {e}", ctx.peer);
+                break;
             }
         }
     }
-    println!("{peer} -> {status}");
+
+    // Emit the audit line whether the write completed or stalled/errored: a
+    // request that reached the point of a response still gets a record, and
+    // the latency value distinguishes a clean send from a stalled one.
+    ctx.finish(status, started.elapsed().as_millis() as u64);
 }

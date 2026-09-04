@@ -14,8 +14,9 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use crate::audit;
 use crate::http::{self, Method, Request, Response};
 
 /// How long a client may keep a redirect-socket read blocked.
@@ -62,6 +63,10 @@ pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
     let mut stream = stream;
     let mut buf: Vec<u8> = Vec::new();
 
+    // Latency is measured from handler start (first byte read) to the last
+    // byte written, matching the TLS listener's audit definition.
+    let started = Instant::now();
+
     loop {
         let mut chunk = [0u8; 2048];
         let n = match stream.read(&mut chunk) {
@@ -76,14 +81,34 @@ pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
 
         // Enough to decide: header section complete, or given up on it.
         if has_header_terminator(&buf) || buf.len() >= MAX_HEADER_BYTES {
-            let response = match http::parse_request(&buf) {
-                http::ParseOutcome::Complete(req) => respond(&req, cfg),
+            let (response, ctx, head) = match http::parse_request(&buf) {
+                http::ParseOutcome::Complete(req) => {
+                    let head = req.method == Method::Head;
+                    let ctx = audit::AuditCtx {
+                        listener: "http80",
+                        peer: peer.clone(),
+                        method: audit::method_name(&req.method).to_string(),
+                        path: req.path.clone(),
+                        session: None,
+                    };
+                    (respond(&req, cfg), ctx, head)
+                }
                 // Malformed or body-missing — never a valid ACME fetch, and
                 // the safe answer to a broken plaintext request is still a
-                // redirect to HTTPS.
-                _ => redirect_to_https(&cfg.public_host, "/", None),
+                // redirect to HTTPS. Method/path are best-effort from the raw
+                // buffer so even the junk shows up in the audit log.
+                _ => {
+                    let ctx = audit::AuditCtx {
+                        listener: "http80",
+                        peer: peer.clone(),
+                        method: audit::method_token(&buf),
+                        path: audit::path_token(&buf),
+                        session: None,
+                    };
+                    (redirect_to_https(&cfg.public_host, "/", None), ctx, false)
+                }
             };
-            write_response(&mut stream, response, &peer);
+            write_response(&mut stream, response, ctx, head, started);
             return;
         }
     }
@@ -147,10 +172,13 @@ fn serve_token(webroot: &Path, token: &str) -> Response {
         Ok(bytes) => Response {
             status: 200,
             reason: "OK",
-            headers: vec![
-                ("Content-Type".to_string(), "text/plain".to_string()),
-                ("Content-Length".to_string(), bytes.len().to_string()),
-            ],
+            // Content-Length is deliberately NOT set here: into_bytes (the
+            // single wire funnel) always adds it from the body length. A
+            // manual one would duplicate the header on the wire.
+            headers: vec![(
+                "Content-Type".to_string(),
+                "text/plain".to_string(),
+            )],
             body: bytes,
         },
         Err(_) => not_found(),
@@ -210,14 +238,22 @@ fn has_header_terminator(buf: &[u8]) -> bool {
     buf.windows(4).any(|w| w == b"\r\n\r\n")
 }
 
-fn write_response(stream: &mut TcpStream, response: Response, peer: &str) {
+/// Write a response on the plaintext listener and emit its audit line.
+/// `head` tells the serializer to omit the body (a HEAD request on :80 still
+/// gets its 301 headers — and the redirect body's length — but no body).
+fn write_response(
+    stream: &mut TcpStream,
+    response: Response,
+    ctx: audit::AuditCtx,
+    head: bool,
+    started: Instant,
+) {
     let status = response.status;
-    let bytes = response.into_bytes();
+    let bytes = response.into_bytes(head);
     if let Err(e) = stream.write_all(&bytes) {
-        eprintln!("Write error on redirect connection to {peer}: {e}");
-    } else {
-        println!("{peer} -> {status} (http)");
+        eprintln!("Write error on redirect connection to {}: {e}", ctx.peer);
     }
+    ctx.finish(status, started.elapsed().as_millis() as u64);
 }
 
 #[cfg(test)]

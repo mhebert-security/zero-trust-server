@@ -2,15 +2,29 @@ use crate::http::{Method, Request, Response};
 use crate::middleware::{headers, session};
 use crate::handlers::{challenge, content};
 
+/// Outcome of routing: the response to send, plus the session gate's ruling.
+///
+/// The response carries no memory of the request that produced it, but the
+/// audit log needs to know whether the gate ran and how it ruled — so routing
+/// returns both. The caller (the connection handler) pairs this with the
+/// request-derived method/path it already captured.
+pub struct Routed {
+    pub response: Response,
+    /// Some(true/false) when the session gate ran on this request; None for
+    /// the public pre-gate routes (static assets, /pow/verify, /health),
+    /// which never consulted the session cookie.
+    pub session: Option<bool>,
+}
+
 /// Entry point for all request routing.
 /// Every request passes through here — no exceptions.
 ///
 /// Middleware order is fixed and deliberate:
-/// 1. Public endpoints (static assets + /pow/verify) — pre-session
+/// 1. Public endpoints (static assets + /pow/verify + /health) — pre-session
 /// 2. Session verification (PoW challenge gate)
 /// 3. Handler dispatch (method + path matching)
 /// 4. Security header injection (every response)
-pub fn handle(request: Request) -> Response {
+pub fn handle(request: Request) -> Routed {
     // Step 0 — Public endpoints reachable WITHOUT a session.
     // Three things are public before the gate: the static assets the
     // challenge page needs (CSS/JS/WASM), the PoW submission endpoint, and
@@ -20,33 +34,46 @@ pub fn handle(request: Request) -> Response {
     // below, the challenge could never complete (assets come back as
     // challenge HTML, the verify POST never reaches pow::verify) and an
     // external monitor would false-alarm on every check.
+    //
+    // HEAD routes as GET on the public endpoints too, so a monitor or link
+    // checker that probes /health or an asset with HEAD sees the same result
+    // a GET would (the serializer drops the body at the wire).
 
     // Static assets — the challenge page fetches these before a session
     // exists.
-    if request.method == Method::Get && request.path.starts_with("/static/") {
-        return headers::inject(content::static_asset(&request.path));
+    if is_get(&request.method) && request.path.starts_with("/static/") {
+        return Routed {
+            response: headers::inject(content::static_asset(&request.path)),
+            session: None,
+        };
     }
 
     // PoW solution submission — the only way an unverified visitor obtains a
     // session. On success pow::verify returns 302 + Set-Cookie.
     if request.method == Method::Post && request.path == "/pow/verify" {
-        return headers::inject(crate::middleware::pow::verify(&request));
+        return Routed {
+            response: headers::inject(crate::middleware::pow::verify(&request)),
+            session: None,
+        };
     }
 
     // /health — minimal liveness probe for external uptime monitors (item:
     // public health endpoint). Pre-session, GET-only, static body: a 200 here
     // proves the full path (TLS, parse, routing, headers) is alive without
     // leaking anything. No cookie required.
-    if request.method == Method::Get && request.path == "/health" {
-        return headers::inject(Response {
-            status: 200,
-            reason: "OK",
-            headers: vec![(
-                "Content-Type".to_string(),
-                "text/plain; charset=utf-8".to_string(),
-            )],
-            body: b"ok".to_vec(),
-        });
+    if is_get(&request.method) && request.path == "/health" {
+        return Routed {
+            response: headers::inject(Response {
+                status: 200,
+                reason: "OK",
+                headers: vec![(
+                    "Content-Type".to_string(),
+                    "text/plain; charset=utf-8".to_string(),
+                )],
+                body: b"ok".to_vec(),
+            }),
+            session: None,
+        };
     }
 
     // Step 1 — Session verification.
@@ -56,7 +83,10 @@ pub fn handle(request: Request) -> Response {
     // This is the zero trust enforcement point.
     if !session::is_valid(&request) {
         let challenge_response = challenge::serve(&request);
-        return headers::inject(challenge_response);
+        return Routed {
+            response: headers::inject(challenge_response),
+            session: Some(false),
+        };
     }
 
     // Step 2 — Handler dispatch.
@@ -66,13 +96,19 @@ pub fn handle(request: Request) -> Response {
     // intentional, see router.md Explicit Design Decisions.
     // /pow/verify is NOT here — it is handled in Step 0 because it is
     // public (it issues the session cookie to unverified visitors).
-    let response = match (&request.method, request.path.as_str()) {
-        // Main portfolio content — GET only.
-        (Method::Get, "/") => content::index(&request),
-        (Method::Get, "/about") => content::about(&request),
-        (Method::Get, "/projects") => content::projects(&request),
-        (Method::Get, "/writing") => content::writing(&request),
-        (Method::Get, "/contact") => content::contact(&request),
+    //
+    // HEAD shares the GET handlers: it must answer any resource GET answers,
+    // with the same headers and no body (RFC 9110). The serializer decides
+    // whether to strip the body from the caller's knowledge of the method;
+    // here it is enough to route HEAD exactly like GET.
+    let is_get = matches!(request.method, Method::Get | Method::Head);
+    let response = match (is_get, request.path.as_str()) {
+        // Main portfolio content — GET/HEAD.
+        (true, "/") => content::index(&request),
+        (true, "/about") => content::about(&request),
+        (true, "/projects") => content::projects(&request),
+        (true, "/writing") => content::writing(&request),
+        (true, "/contact") => content::contact(&request),
 
         // Catch-all — 404 for anything not explicitly listed.
         _ => Response {
@@ -87,7 +123,15 @@ pub fn handle(request: Request) -> Response {
     // Runs on every response regardless of which handler produced it.
     // Headers include CSP, HSTS, X-Frame-Options, etc.
     // Defined in middleware/headers.rs.
-    headers::inject(response)
+    Routed {
+        response: headers::inject(response),
+        session: Some(true),
+    }
+}
+
+/// A handler-servable read method: GET, or HEAD (which routes as GET).
+fn is_get(m: &Method) -> bool {
+    matches!(m, Method::Get | Method::Head)
 }
 
 #[cfg(test)]
@@ -111,13 +155,29 @@ mod tests {
     #[test]
     fn health_is_public_and_injected() {
         // No cookie, no session — /health still answers 200 for the monitor,
-        // and the full security header set is applied.
-        let resp = handle(request(Method::Get, "/health"));
+        // and the full security header set is applied. The gate did not run,
+        // so the audit context is None ("na").
+        let routed = handle(request(Method::Get, "/health"));
+        let resp = &routed.response;
         assert_eq!(resp.status, 200);
         assert_eq!(resp.body, b"ok");
-        assert!(has_header(&resp, "Content-Security-Policy"));
-        assert!(has_header(&resp, "Strict-Transport-Security"));
-        assert!(has_header(&resp, "X-Content-Type-Options"));
+        assert_eq!(routed.session, None);
+        assert!(has_header(resp, "Content-Security-Policy"));
+        assert!(has_header(resp, "Strict-Transport-Security"));
+        assert!(has_header(resp, "X-Content-Type-Options"));
+    }
+
+    #[test]
+    fn head_health_matches_get() {
+        // A monitor probing /health with HEAD (the common uptime pattern)
+        // must get exactly what GET returns — routing is shared.
+        let routed = handle(request(Method::Head, "/health"));
+        let resp = &routed.response;
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body, b"ok");
+        assert_eq!(routed.session, None);
+        // Body suppression is the serializer's job, driven by the caller's
+        // knowledge that this was HEAD — asserted in http.rs tests.
     }
 
     #[test]
@@ -138,9 +198,40 @@ mod tests {
             body: Vec::new(),
         };
 
-        let resp = handle(req);
+        let routed = handle(req);
+        let resp = &routed.response;
         assert_eq!(resp.status, 404);
-        assert!(has_header(&resp, "Content-Security-Policy"));
-        assert!(has_header(&resp, "Strict-Transport-Security"));
+        // A valid session reached the gate, which ruled true.
+        assert_eq!(routed.session, Some(true));
+        assert!(has_header(resp, "Content-Security-Policy"));
+        assert!(has_header(resp, "Strict-Transport-Security"));
+    }
+
+    #[test]
+    fn unsessioned_page_request_is_gate_denied() {
+        // No cookie on a gated page → the challenge is served and the audit
+        // context records the gate ruled no.
+        let routed = handle(request(Method::Get, "/"));
+        assert_eq!(routed.session, Some(false));
+    }
+
+    #[test]
+    fn head_gated_page_with_session_routes_as_get() {
+        unsafe { std::env::set_var("SESSION_SECRET", "0123456789abcdef0123456789abcdef") }
+        let cookie = crate::middleware::session::issue_cookie().expect("cookie");
+        let zts = cookie.split(';').next().unwrap().to_string();
+        let mut headers = HashMap::new();
+        headers.insert("cookie".to_string(), zts);
+        let req = Request {
+            method: Method::Head,
+            path: "/".to_string(),
+            headers,
+            body: Vec::new(),
+        };
+        let routed = handle(req);
+        let resp = &routed.response;
+        assert_eq!(resp.status, 200);
+        assert_eq!(routed.session, Some(true));
+        assert!(has_header(resp, "Content-Security-Policy"));
     }
 }
