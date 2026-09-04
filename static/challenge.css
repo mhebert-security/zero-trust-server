@@ -1,15 +1,23 @@
-/* Challenge page styles.
- * Served from /static/challenge.css — the CSP (style-src 'self')
- * forbids inline <style> blocks, so the styling is an external file. */
+/* Challenge page styles — the pre-session PoW gate.
+ *
+ * Served from /static/challenge.css. CSP (style-src 'self') forbids inline
+ * <style> blocks, so this file is the gate's only styling.
+ *
+ * Palette deliberately matches static/style.css (post-gate pages): #0d0d0d
+ * ground, #e8e8e8 ink, #00ff88 accent. Values are duplicated here rather
+ * than shared via @import so the gate makes exactly one stylesheet request
+ * before the WASM solve. Keep the two files' tokens in sync.
+ */
+
 body {
-    font-family: system-ui, sans-serif;
+    font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
     display: flex;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
     margin: 0;
-    background: #0f1117;
-    color: #e2e8f0;
+    background: #0d0d0d;
+    color: #e8e8e8;
 }
 
 .container {
@@ -25,13 +33,32 @@ body {
     display: none;
 }
 
+/* "Verifying your browser..." with a terminal cursor while the WASM solve
+ * runs. The block cursor is a CSS animation, not an image. */
 .status {
     font-size: 0.9rem;
-    color: #94a3b8;
+    color: #9c9c9c;
     margin-top: 1rem;
 }
 
+.status::after {
+    content: "▊";
+    color: #00ff88;
+    margin-left: 0.4rem;
+    animation: cursor-blink 1s steps(1) infinite;
+}
+
+@keyframes cursor-blink {
+    50% { opacity: 0; }
+}
+
 .error {
-    color: #f87171;
+    color: #ff5f56;
     display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status::after {
+        animation: none;
+    }
 }

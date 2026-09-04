@@ -1,0 +1,379 @@
+/* static/style.css — site-wide stylesheet for the post-gate pages.
+ *
+ * Design contract:
+ *   - Zero external resources. No web fonts, no CDN, nothing but this file.
+ *     The CSP (font-src 'self', style-src 'self') enforces the same rule.
+ *     Everything is a system font stack or a local token.
+ *   - Dark terminal palette: near-black ground, off-white ink, one green
+ *     accent. Monospace for code and headings; system-ui for body text.
+ *   - Custom-property tokens first, layout second, components last.
+ *
+ * All styling for the five gated pages lives here. Inline <style> blocks and
+ * style="" attributes are forbidden by CSP, so nothing is styled in the HTML.
+ */
+
+/* ---------- 1. Tokens ---------- */
+
+:root {
+    /* Palette */
+    --bg: #0d0d0d;            /* page ground */
+    --bg-elevated: #141414;   /* cards, code, inset areas */
+    --border: #262626;        /* hairline strokes */
+    --fg: #e8e8e8;            /* primary ink */
+    --fg-muted: #9c9c9c;      /* secondary text */
+    --fg-faint: #666666;      /* tertiary text, footer */
+    --accent: #00ff88;        /* the one color that means "live/here" */
+    --accent-ink: #02170d;    /* text drawn on the accent */
+    --error: #ff5f56;         /* reserved for gate errors (challenge.css) */
+
+    /* Type */
+    --font-mono: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+    --font-body: system-ui, sans-serif;
+
+    /* Layout */
+    --measure: 46rem;         /* comfortable reading width */
+    --space: 1rem;
+    --radius: 3px;
+
+    color-scheme: dark;
+}
+
+/* ---------- 2. Base ---------- */
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    background: var(--bg);
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+/* Anchors read as actions, not decoration. */
+a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+}
+
+a:hover {
+    border-bottom-color: currentColor;
+}
+
+a:visited {
+    color: var(--accent); /* no visited-purple on a terminal palette */
+}
+
+/* One clearly visible keyboard focus ring for the whole site. */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 1px;
+}
+
+::selection {
+    background: var(--accent);
+    color: var(--accent-ink);
+}
+
+code,
+pre,
+kbd {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+code {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.05em 0.35em;
+}
+
+h1, h2, h3, h4 {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    margin: 0 0 var(--space);
+}
+
+/* ---------- 3. Layout ---------- */
+
+/* Shared page shell for the four interior pages. */
+.page {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: 2rem 1.25rem 3rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+}
+
+.page-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space);
+    flex-wrap: wrap;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2.5rem;
+}
+
+.wordmark {
+    font-family: var(--font-mono);
+    color: var(--fg);
+}
+
+.wordmark .dot {
+    color: var(--accent);
+}
+
+/* The nav present on every page. */
+.nav {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+}
+
+.nav a {
+    color: var(--fg-muted);
+    border-bottom-color: transparent;
+}
+
+.nav a:hover {
+    color: var(--fg);
+}
+
+.nav a[aria-current="page"] {
+    color: var(--accent);
+}
+
+.page > main {
+    flex: 1;
+}
+
+.page-footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--fg-faint);
+}
+
+.page-footer code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--fg-faint);
+}
+
+/* ---------- 4. Landing (index) — one screen, no scroll ---------- */
+
+.landing {
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+}
+
+.landing-inner {
+    max-width: 40rem;
+    width: 100%;
+}
+
+/* Terminal readout line above the name. */
+.eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--accent);
+    margin: 0 0 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.eyebrow::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    background: var(--accent);
+    border-radius: 50%;
+    flex: none;
+    box-shadow: 0 0 8px var(--accent);
+}
+
+.landing h1 {
+    font-size: clamp(2rem, 6vw, 3rem);
+    margin: 0 0 0.75rem;
+}
+
+.landing .role {
+    font-family: var(--font-mono);
+    color: var(--fg-muted);
+    margin: 0 0 1.75rem;
+}
+
+.landing .pitch {
+    margin: 0 0 2.5rem;
+    max-width: 34rem;
+}
+
+.landing .pitch code {
+    white-space: nowrap;
+}
+
+.landing .nav {
+    font-size: 1rem;
+    gap: 1.75rem;
+}
+
+/* ---------- 5. Prose (interior pages) ---------- */
+
+.lead {
+    color: var(--fg-muted);
+    font-size: 1.05rem;
+    max-width: 38rem;
+    margin: 0 0 2.5rem;
+}
+
+h2.rule {
+    /* Section heading with a hairline that runs past the text. */
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.05rem;
+    color: var(--fg-muted);
+    font-weight: 500;
+}
+
+h2.rule::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+/* ---------- 6. Project cards (projects) ---------- */
+
+.proj-list {
+    display: grid;
+    gap: 1.25rem;
+    margin: 0 0 1.25rem;
+}
+
+.proj {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.4rem 1.5rem;
+}
+
+.proj h3 {
+    margin: 0 0 0.25rem;
+    font-size: 1.05rem;
+}
+
+.proj .tagline {
+    color: var(--fg-muted);
+    margin: 0 0 1rem;
+}
+
+.proj .constraints {
+    list-style: none;
+    margin: 0 0 1.1rem;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--fg-faint);
+}
+
+.proj .constraints li {
+    padding-left: 1.1rem;
+    position: relative;
+    margin-bottom: 0.15rem;
+}
+
+.proj .constraints li::before {
+    content: ">";
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+}
+
+.proj .repo {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+}
+
+.proj .repo::after {
+    content: " ↗";
+}
+
+/* ---------- 7. Interior page headings & lists ---------- */
+
+/* Quiet page-name heading; the "#" reads as a terminal comment marker. */
+.page-title {
+    font-family: var(--font-mono);
+    font-size: 1.35rem;
+    font-weight: 600;
+    margin: 0 0 1.5rem;
+}
+
+.page-title::before {
+    content: "# ";
+    color: var(--fg-faint);
+}
+
+/* Essay list (writing). Titles are plain text until the posts exist —
+ * nothing links to a page that isn't there yet. */
+.essays {
+    list-style: none;
+    margin: 0 0 2rem;
+    padding: 0;
+    display: grid;
+    gap: 0.4rem;
+}
+
+.essays li {
+    padding-left: 1.1rem;
+    position: relative;
+}
+
+.essays li::before {
+    content: ">";
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+}
+
+/* The one-line contact channel. */
+.mailto {
+    font-family: var(--font-mono);
+    font-size: 1.25rem;
+}
+
+/* ---------- 8. Misc helpers ---------- */
+
+.muted {
+    color: var(--fg-muted);
+}
+
+.faint {
+    color: var(--fg-faint);
+}
