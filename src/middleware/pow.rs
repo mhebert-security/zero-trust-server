@@ -352,3 +352,85 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         .fold(0u8, |acc, (x, y)| acc | (x ^ y));
     result == 0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http::{Method, Request};
+    use std::collections::HashMap;
+
+    /// Same `SESSION_SECRET` literal as the router/session tests, so
+    /// env-dependent tests across modules of this crate (which share one
+    /// test process) never race on a *different* value.
+    const TEST_SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+    fn set_secret() {
+        // edition 2024 makes env mutation unsafe — established idiom.
+        unsafe { std::env::set_var("SESSION_SECRET", TEST_SECRET) }
+    }
+
+    /// FIPS 180-4 §B.1: `SHA-256("abc")`. This is the cross-check for the
+    /// `pow.rs` duplicate of the from-scratch implementation — `session.rs`'s
+    /// independent copy is asserted against the same vector there, so a bug
+    /// or typo present in both copies is still caught by the known answer.
+    #[test]
+    fn sha256_matches_fips_abc_vector() {
+        let expected: [u8; 32] = [
+            0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea,
+            0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
+            0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
+            0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad,
+        ];
+        assert_eq!(sha256(b"abc"), expected);
+    }
+
+    /// Brute-force a candidate that satisfies the CURRENT difficulty for a
+    /// given server-issued nonce, using the module's own validity check.
+    fn solve(nonce: &str) -> u64 {
+        // Expected 2^DIFFICULTY ≈ 1M tries at difficulty 20; the cap exists
+        // only to guarantee termination in a pathological tail.
+        const MAX_TRIES: u64 = 1 << 25;
+        for candidate in 0..MAX_TRIES {
+            if solution_is_valid(nonce, candidate) {
+                return candidate;
+            }
+        }
+        panic!("no candidate satisfied difficulty {DIFFICULTY} within {MAX_TRIES} tries");
+    }
+
+    fn post_request(nonce: &str, sig: &str, candidate: u64) -> Request {
+        let mut headers = HashMap::new();
+        headers.insert(
+            "content-type".to_string(),
+            "application/x-www-form-urlencoded".to_string(),
+        );
+        Request {
+            method: Method::Post,
+            path: "/pow/verify".to_string(),
+            headers,
+            body: format!("nonce={nonce}&nonce_sig={sig}&candidate={candidate}").into_bytes(),
+        }
+    }
+
+    /// Documents known gap #14: `pow::verify` is stateless — no record of
+    /// used nonces is kept, so replaying the SAME valid submission within the
+    /// nonce TTL (300s) succeeds twice, minting a second session cookie.
+    /// This is the intended current behavior (the cost is paid per solve, and
+    /// a replayed solve re-verifies cheaply); the note in `09_security_audit`
+    /// tracks it as accepted-until-volume-justifies-a-used-nonce-cache.
+    #[test]
+    fn same_valid_submission_verifies_twice_replay_window() {
+        set_secret();
+        let (nonce, sig) = generate_challenge().expect("secret configured → challenge issued");
+        let candidate = solve(&nonce);
+
+        let first = verify(&post_request(&nonce, &sig, candidate));
+        let second = verify(&post_request(&nonce, &sig, candidate));
+
+        assert_eq!(first.status, 302, "first submission must succeed");
+        assert_eq!(second.status, 302, "replayed submission also succeeds — gap #14");
+        let has_cookie = |r: &Response| r.headers.iter().any(|(n, _)| n == "Set-Cookie");
+        assert!(has_cookie(&first), "first response sets a session cookie");
+        assert!(has_cookie(&second), "replayed response sets another session cookie");
+    }
+}

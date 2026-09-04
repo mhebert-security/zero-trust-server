@@ -86,4 +86,41 @@ mod tests {
         drop(a);
         assert!(sem.try_acquire_owned().is_some(), "all permits recycled");
     }
+
+    /// A panic in a thread that holds a permit must not leak it: unwinding
+    /// drops the `SemaphorePermit` guard, whose `Drop` releases the slot. The
+    /// audit's point is that even a panicking worker returns its permit.
+    ///
+    /// Caveat recorded in the audit note: production builds use
+    /// `panic = "abort"` (Cargo.toml [profile.release]), so this Drop-on-
+    /// unwind path only executes under the dev/test profile. In release a
+    /// worker panic aborts the whole process — which is fail-closed (no
+    /// half-open state), not a permit leak. The property tested here is the
+    /// one that matters under `cargo test` and any future unwind-enabled
+    /// profile.
+    #[test]
+    fn permit_is_returned_when_holder_thread_panics() {
+        let sem = Arc::new(Semaphore::new(1));
+
+        let worker = {
+            let sem = Arc::clone(&sem);
+            std::thread::spawn(move || {
+                let _permit = sem.try_acquire_owned().expect("permit free for worker");
+                // The worker dies while still holding the permit.
+                panic!("worker panics while holding a permit");
+            })
+        };
+
+        // The panic propagates out of the thread; joining surfaces it.
+        assert!(
+            worker.join().is_err(),
+            "the worker panicked, so join returns Err"
+        );
+
+        // Unwinding dropped the guard → the permit is back in the pool.
+        assert!(
+            sem.try_acquire_owned().is_some(),
+            "permit must be recovered after the holder panics"
+        );
+    }
 }

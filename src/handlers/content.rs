@@ -102,3 +102,42 @@ fn not_found() -> Response {
         body: b"<html><body>404 Not Found</body></html>".to_vec(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Exhaustive audit (2026-09-04) — /static/ path traversal containment.
+    // The http.rs parser keeps %2e%2e literal (no decoder exists anywhere),
+    // so the only way to reach the filesystem is through static_asset, which
+    // rejects any filename containing a real '/' or "..". These lock that in.
+
+    #[test]
+    fn literal_parent_dotdot_is_rejected_before_fs() {
+        assert_eq!(static_asset("/static/../etc/passwd").status, 404);
+        assert_eq!(static_asset("/static/..%2fsecret").status, 404, "contains '..'");
+        assert_eq!(static_asset("/static/%2e./x").status, 404);
+    }
+
+    #[test]
+    fn percent_encoded_traversal_never_reaches_fs() {
+        // Encoded-only traversal names a literal "%"-containing file that
+        // does not exist; any real separator that would change directory is
+        // rejected outright. Either way: 404, never fs::read of a parent.
+        assert_eq!(static_asset("/static/%2e%2e%2fetc%2fpasswd").status, 404);
+        assert_eq!(static_asset("/static/%2e%2e/x").status, 404, "real '/' rejected");
+        assert_eq!(static_asset("/static/%2e%2e").status, 404);
+    }
+
+    #[test]
+    fn real_css_asset_serves_200() {
+        // Sanity: the guard above is not rejecting everything.
+        let r = static_asset("/static/style.css");
+        assert_eq!(r.status, 200);
+        assert!(
+            r.headers
+                .iter()
+                .any(|(n, v)| n == "Content-Type" && v == "text/css")
+        );
+    }
+}

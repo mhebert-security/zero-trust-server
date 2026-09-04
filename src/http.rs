@@ -190,6 +190,16 @@ pub fn parse_request(buf: &[u8]) -> ParseOutcome {
         None => return ParseOutcome::Rejected(Response::bad_request()),
     };
 
+    // Reject control characters inside the request line. HTTP/1.1 delimits
+    // lines with CRLF and str::lines() has already stripped that trailing
+    // terminator, so a well-formed request line contains no CR or LF. A lone
+    // CR (not followed by LF) or other CTL would otherwise survive verbatim
+    // into `path` — RFC 9112 §3.2 requires rejecting a request-target that
+    // contains such bytes rather than echoing them anywhere downstream.
+    if request_line.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return ParseOutcome::Rejected(Response::bad_request());
+    }
+
     let mut parts = request_line.splitn(3, ' ');
 
     let method = match parts.next() {
@@ -225,10 +235,22 @@ pub fn parse_request(buf: &[u8]) -> ParseOutcome {
             Some(nv) => nv,
             None => return ParseOutcome::Rejected(Response::bad_request()),
         };
-        headers.insert(
-            name.trim().to_lowercase(),
-            value.trim().to_string(),
-        );
+        let name = name.trim().to_lowercase();
+        let value = value.trim().to_string();
+
+        // Content-Length duplicates with differing values are a classic
+        // request-smuggling ambiguity and MUST be rejected (RFC 9112 §7.3.1).
+        // Repeated identical values are unambiguous and tolerated. (A real
+        // attacker never sends two equal ones; a legitimate client never
+        // sends two at all.)
+        if name == "content-length"
+            && let Some(prev) = headers.get("content-length")
+            && prev != &value
+        {
+            return ParseOutcome::Rejected(Response::bad_request());
+        }
+
+        headers.insert(name, value);
     }
 
     // Parse body if present.
@@ -433,6 +455,167 @@ mod tests {
                 ("Content-Type".to_string(), "text/plain; charset=utf-8".to_string()),
             ],
             body: b"hi".to_vec(),
+        }
+    }
+
+    // ── Exhaustive audit (2026-09-04) — HTTP parser edge cases ──────────────
+
+    #[test]
+    fn post_with_content_length_zero_parses_empty_body() {
+        // A legitimate Content-Length: 0 on POST (e.g. an empty form submit)
+        // must parse as Complete with an empty body, not hang as Incomplete.
+        let buf = b"POST /pow/verify HTTP/1.1\r\n\
+                    Host: mhebert.dev\r\n\
+                    Content-Length: 0\r\n\r\n";
+        match parse_request(buf) {
+            ParseOutcome::Complete(req) => {
+                assert_eq!(req.method, Method::Post);
+                assert!(req.body.is_empty(), "CL:0 POST carries no body");
+            }
+            other => panic!("Content-Length: 0 should parse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn differing_duplicate_content_length_is_rejected() {
+        // Two Content-Length headers with different values = the canonical
+        // request-smuggling ambiguity. After the 2026-09-04 hardening the
+        // parser rejects (400) instead of silently letting the last one win.
+        let buf = b"POST /pow/verify HTTP/1.1\r\n\
+                    Host: mhebert.dev\r\n\
+                    Content-Length: 5\r\n\
+                    Content-Length: 6\r\n\r\nhello";
+        match parse_request(buf) {
+            ParseOutcome::Rejected(r) => assert_eq!(r.status, 400),
+            other => panic!("conflicting Content-Length must be Rejected(400), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn identical_duplicate_content_length_is_accepted() {
+        // Repeated identical Content-Length values are unambiguous per
+        // RFC 9112 §7.3.1 and tolerated.
+        let buf = b"POST /pow/verify HTTP/1.1\r\n\
+                    Host: mhebert.dev\r\n\
+                    Content-Length: 5\r\n\
+                    Content-Length: 5\r\n\r\nhello";
+        match parse_request(buf) {
+            ParseOutcome::Complete(req) => {
+                assert_eq!(req.body, b"hello");
+            }
+            other => panic!("identical Content-Length should parse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn percent_encoded_dotdot_is_kept_literal_not_decoded() {
+        // The parser is deliberately not a percent-decoder: %2e%2e stays
+        // %2e%2e in `path`. Nothing downstream decodes it either (fs access
+        // in content::static_asset blocks literal `/` and `..` and never sees
+        // a decoded path), so URL-encoded traversal is inert. The assertion
+        // here locks in that no decoding/normalization happens at parse time.
+        let buf = b"GET /static/%2e%2e%2fetc%2fpasswd HTTP/1.1\r\n\
+                    Host: mhebert.dev\r\n\r\n";
+        match parse_request(buf) {
+            ParseOutcome::Complete(req) => {
+                assert_eq!(
+                    req.path,
+                    "/static/%2e%2e%2fetc%2fpasswd",
+                    "parser must not decode or normalize the path"
+                );
+            }
+            other => panic!("encoded path should parse verbatim, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn embedded_crlf_splits_request_line_is_rejected() {
+        // A premature CRLF that tries to inject a second request line
+        // ("request splitting") lands the forged line in the header section
+        // where it has no ':' — rejected, never executed as a second request.
+        let buf = b"GET / HTTP/1.1\r\nPOST /admin HTTP/1.1\r\nHost: x\r\n\r\n";
+        match parse_request(buf) {
+            ParseOutcome::Rejected(r) => assert_eq!(r.status, 400),
+            other => panic!("smuggled second request line must be Rejected(400), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lone_cr_in_request_target_is_rejected() {
+        // A single \r not followed by \n previously survived verbatim into
+        // `path` (lines() only strips a trailing CR). After the 2026-09-04
+        // hardening, any control byte in the request line is rejected.
+        let buf = b"GET /a\rb HTTP/1.1\r\nHost: x\r\n\r\n";
+        match parse_request(buf) {
+            ParseOutcome::Rejected(r) => assert_eq!(r.status, 400),
+            other => panic!("lone CR in request target must be Rejected(400), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn header_value_crlf_becomes_separate_headers_not_one_tampered_value() {
+        // A raw CRLF inside what the attacker *intends* as one header value is
+        // just HTTP's line terminator: the parser reads it as two discrete
+        // headers. No stored header value can therefore contain a CR or LF —
+        // verify none do, and that a would-be injected header is visible as a
+        // separate, inert entry (nothing downstream echoes request headers).
+        let buf = b"GET / HTTP/1.1\r\n\
+                    Host: mhebert.dev\r\n\
+                    X-Contained: a\r\n\
+                    X-Injected: evil\r\n\r\n";
+        match parse_request(buf) {
+            ParseOutcome::Complete(req) => {
+                assert_eq!(req.headers.get("host").map(String::as_str), Some("mhebert.dev"));
+                assert_eq!(req.headers.get("x-contained").map(String::as_str), Some("a"));
+                assert_eq!(req.headers.get("x-injected").map(String::as_str), Some("evil"));
+                for value in req.headers.values() {
+                    assert!(
+                        !value.contains(['\r', '\n']),
+                        "no parsed header value may contain a line break: {value:?}"
+                    );
+                }
+            }
+            other => panic!("multi-line headers should parse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn obs_fold_without_colon_is_rejected() {
+        // HTTP/1.1 obsolete line folding (a continuation line starting with a
+        // space) is not supported. The continuation line has no ':' → 400.
+        let buf = b"GET / HTTP/1.1\r\n\
+                    Host: x\r\n\
+                    \tfolded continuation\r\n\r\n";
+        match parse_request(buf) {
+            ParseOutcome::Rejected(r) => assert_eq!(r.status, 400),
+            other => panic!("obs-fold continuation must be Rejected(400), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn content_length_overflowing_usize_is_rejected() {
+        // A Content-Length that cannot fit in usize must 400, not panic or
+        // wrap. parse::<usize> fails on overflow → bad_request.
+        let buf = b"POST /pow/verify HTTP/1.1\r\n\
+                    Host: x\r\n\
+                    Content-Length: 99999999999999999999999999999999\r\n\r\n";
+        match parse_request(buf) {
+            ParseOutcome::Rejected(r) => assert_eq!(r.status, 400),
+            other => panic!("overflowing Content-Length must be Rejected(400), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn content_length_over_body_cap_is_rejected_413() {
+        // A Content-Length that parses fine but exceeds MAX_BODY_SIZE must
+        // answer 413 Payload Too Large before any body is buffered.
+        let big = MAX_BODY_SIZE as u64 + 1;
+        let buf = format!(
+            "POST /pow/verify HTTP/1.1\r\nHost: x\r\nContent-Length: {big}\r\n\r\n"
+        );
+        match parse_request(buf.as_bytes()) {
+            ParseOutcome::Rejected(r) => assert_eq!(r.status, 413),
+            other => panic!("oversize Content-Length must be Rejected(413), got {other:?}"),
         }
     }
 }

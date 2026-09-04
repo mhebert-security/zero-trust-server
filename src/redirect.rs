@@ -362,6 +362,50 @@ mod tests {
         assert_eq!(serve_token(webroot, "a/b").status, 404);
     }
 
+    /// A Host header carrying CRLF + an injected header must be rejected by
+    /// valid_host, so the Location falls back to the public host and the
+    /// serialized response contains no trace of the injection. This is the
+    /// response-header-injection (header splitting) case, distinct from the
+    /// plain "bad\r\n" garbage already covered above.
+    #[test]
+    fn host_crlf_header_injection_is_neutralized() {
+        let cfg = RedirectConfig {
+            public_host: "mhebert.dev".to_string(),
+            acme_webroot: None,
+        };
+        let evil_host = "mhebert.dev\r\nX-Injected: evil";
+        assert!(!valid_host(evil_host), "CRLF makes a Host header unusable");
+
+        let r = respond(&req(Method::Get, "/", Some(evil_host)), &cfg);
+        assert_eq!(r.status, 301);
+
+        // Location falls back to the trusted public host — nothing injected.
+        let loc = r
+            .headers
+            .iter()
+            .find(|(n, _)| n == "Location")
+            .expect("redirect carries a Location")
+            .1
+            .clone();
+        assert_eq!(loc, "https://mhebert.dev/");
+        assert!(
+            !loc.contains(['\r', '\n']),
+            "Location must contain no line break: {loc:?}"
+        );
+
+        // And the full wire image is clean too — the injected header never
+        // appears as a real header line.
+        let bytes = String::from_utf8_lossy(&r.into_bytes(false)).into_owned();
+        assert!(
+            !bytes.contains("X-Injected"),
+            "injected header must not reach the wire: {bytes:?}"
+        );
+        assert!(
+            !bytes.contains("mhebert.dev\r\n"),
+            "the raw CRLF must not be re-emitted: {bytes:?}"
+        );
+    }
+
     fn no_acme() -> RedirectConfig {
         RedirectConfig {
             public_host: "mhebert.dev".to_string(),

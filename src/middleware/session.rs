@@ -333,3 +333,81 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         .fold(0u8, |acc, (x, y)| acc | (x ^ y));
     result == 0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Same `SESSION_SECRET` literal the router tests use, so env-dependent
+    /// tests in different modules of this crate cannot cross-invalidate each
+    /// other when they run concurrently in one test binary (env is a
+    /// process-global; concurrent `set_var` to a *different* value would race).
+    const TEST_SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+    fn set_secret() {
+        // edition 2024 makes env mutation unsafe — this is the established
+        // idiom across router.rs tests.
+        unsafe { std::env::set_var("SESSION_SECRET", TEST_SECRET) }
+    }
+
+    /// FIPS 180-4 §B.1: `SHA-256("abc")` = `ba7816bf…f20015ad`. This
+    /// cross-checks the `session.rs` copy of the from-scratch implementation;
+    /// the second independent duplicate in `pow.rs` is checked against the
+    /// same vector there, so a typo copied into both places is caught.
+    #[test]
+    fn sha256_matches_fips_abc_vector() {
+        let digest = sha256(b"abc");
+        assert_eq!(
+            to_hex(&digest),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    /// A genuine token verifies; the same token with ONE bit of its HMAC
+    /// signature flipped must not. Proves the signature — not just the
+    /// payload format — gates the session, and that `constant_time_eq` is not
+    /// vacuously accepting a single-bit mismatch.
+    #[test]
+    fn single_bit_flip_in_hmac_signature_is_rejected() {
+        set_secret();
+        let cookie = issue_cookie().expect("secret configured → cookie issued");
+        let token = cookie
+            .strip_prefix("zts=")
+            .and_then(|t| t.split(';').next())
+            .expect("well-formed Set-Cookie header");
+        let secret = get_secret().expect("secret set above");
+
+        // Baseline: the genuine token verifies.
+        assert!(verify_token(token, &secret).is_some());
+
+        // Flip exactly one bit (bit 0 of the signature's first byte) and
+        // rebuild the token with the tampered signature.
+        let (payload, sig_hex) = token.split_once('.').expect("payload.signature");
+        let mut sig = decode_hex(sig_hex);
+        sig[0] ^= 0x01;
+        let forged = format!("{}.{}", payload, to_hex(&sig));
+
+        assert_ne!(forged, token);
+        assert!(
+            verify_token(&forged, &secret).is_none(),
+            "a one-bit-forged signature must not verify"
+        );
+    }
+
+    fn decode_hex(s: &str) -> Vec<u8> {
+        assert_eq!(s.len() % 2, 0, "hex string has even length");
+        s.as_bytes()
+            .chunks(2)
+            .map(|c| (hex_val(c[0]) << 4) | hex_val(c[1]))
+            .collect()
+    }
+
+    fn hex_val(b: u8) -> u8 {
+        match b {
+            b'0'..=b'9' => b - b'0',
+            b'a'..=b'f' => b - b'a' + 10,
+            b'A'..=b'F' => b - b'A' + 10,
+            _ => panic!("not an ascii hex digit: {b:#04x}"),
+        }
+    }
+}
