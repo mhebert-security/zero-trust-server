@@ -107,6 +107,10 @@ fn main() {
     // on /admin counts from process start rather than from the first request.
     metrics::init_at_startup();
 
+    // Start the consumed-nonce sweeper, so the anti-replay table from
+    // /pow/verify cannot grow with the traffic volume.
+    middleware::pow::spawn_consumed_sweeper();
+
     // Bound total concurrency across BOTH listeners.
     let semaphore = Arc::new(semaphore::Semaphore::new(MAX_CONNECTIONS));
 

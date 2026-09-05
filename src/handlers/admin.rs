@@ -10,6 +10,7 @@
 //! meta tag, which needs no script under the site's CSP.
 
 use std::fmt::Write as _;
+use std::net::IpAddr;
 
 use crate::http::{Request, Response};
 use crate::metrics;
@@ -26,7 +27,7 @@ pub fn login_form(request: &Request) -> Response {
     if admin::is_authorized(request) {
         return redirect_to_dashboard();
     }
-    html_admin(200, "OK", login_page(false))
+    html_admin(200, "OK", login_page(None))
 }
 
 /// GET/HEAD /admin — the metrics dashboard, gated on the admin cookie.
@@ -38,11 +39,33 @@ pub fn dashboard(request: &Request) -> Response {
 }
 
 /// POST /admin/login — check the password and mint the admin cookie.
-/// The cookie is issued only here, on a correct password.
-pub fn login(request: &Request) -> Response {
+/// The cookie is issued only here, on a correct password. `peer` feeds the
+/// per-IP attempt throttle, so a guesser cannot hammer the password check at
+/// TCP speed.
+pub fn login(request: &Request, peer: Option<IpAddr>) -> Response {
+    // Throttle before the password work: every POST spends the per-IP budget
+    // whether the password is right or wrong, so the cap cannot be dodged by
+    // sending only well-formed attempts. A request with no resolvable peer
+    // skips the check, matching the /pow/verify gate.
+    if let Some(ip) = peer
+        && admin::login_attempt_denied(ip)
+    {
+        return html_admin(
+            429,
+            "Too Many Requests",
+            login_page(Some("Too many attempts. Wait and try again.")),
+        );
+    }
+
     let provided = field(&request.body, "password").unwrap_or_default();
     if !admin::check_password(&provided) {
-        return html_admin(401, "Unauthorized", login_page(true));
+        return html_admin(401, "Unauthorized", login_page(Some("That password did not match.")));
+    }
+
+    // The password was right: never let earlier wrong guesses in the same
+    // window count against the operator who finally typed it correctly.
+    if let Some(ip) = peer {
+        admin::login_succeeded(ip);
     }
 
     let Some(cookie) = admin::issue_cookie() else {
@@ -136,10 +159,10 @@ fn page_head(title: &str, refresh: bool) -> String {
     head
 }
 
-/// The login page. `error` adds one line above the form saying the password
-/// was wrong. It renders no script and no inline style (CSP), and the form
-/// posts to itself.
-fn login_page(error: bool) -> String {
+/// The login page. `message` is rendered as one line above the form when the
+/// last attempt failed or was throttled. It renders no script and no inline
+/// style (CSP), and the form posts to itself.
+fn login_page(message: Option<&'static str>) -> String {
     let mut html = page_head("mhebert.dev · operator", false);
     html.push_str(
         r#"    <main class="admin-login">
@@ -147,11 +170,10 @@ fn login_page(error: bool) -> String {
         <h1 class="page-title">operator</h1>
 "#,
     );
-    if error {
-        html.push_str(
-            r#"        <p class="admin-error" role="alert">That password did not match.</p>
-"#,
-        );
+    if let Some(message) = message {
+        html.push_str("        <p class=\"admin-error\" role=\"alert\">");
+        html.push_str(message);
+        html.push_str("</p>\n");
     }
     html.push_str(
         r#"        <p class="muted">This login is the only door to the server's metrics. The password lives in the server environment, not in a database.</p>
@@ -388,7 +410,7 @@ mod tests {
     fn correct_password_issues_cookie_and_redirects() {
         set_admin_env();
         let body = format!("password={TEST_ADMIN_PASSWORD}");
-        let response = login(&request(Method::Post, body.as_bytes()));
+        let response = login(&request(Method::Post, body.as_bytes()), None);
         assert_eq!(response.status, 302);
         assert_eq!(
             response
@@ -410,11 +432,35 @@ mod tests {
     #[test]
     fn wrong_password_is_unauthorized_and_sets_no_cookie() {
         set_admin_env();
-        let response = login(&request(Method::Post, b"password=nope"));
+        let response = login(&request(Method::Post, b"password=nope"), None);
         assert_eq!(response.status, 401);
         assert!(!response.headers.iter().any(|(n, _)| n == "Set-Cookie"));
         let body = String::from_utf8(response.body).expect("html is utf-8");
         assert!(body.contains("did not match"));
+    }
+
+    /// Repeated wrong passwords from one address eventually hit the per-IP
+    /// throttle and answer 429 instead of 401. The exact boundary is pinned
+    /// in the middleware unit tests; this exercises the handler end to end.
+    #[test]
+    fn repeated_wrong_passwords_eventually_answer_429() {
+        set_admin_env();
+        // Dedicated address so no other test shares this IP's attempt budget.
+        let ip = IpAddr::V4(std::net::Ipv4Addr::new(10, 91, 0, 9));
+
+        for _ in 0..10 {
+            let response = login(&request(Method::Post, b"password=nope"), Some(ip));
+            assert!(
+                response.status == 401 || response.status == 429,
+                "a wrong password inside the budget is 401, over it 429"
+            );
+        }
+        let throttled = login(&request(Method::Post, b"password=nope"), Some(ip));
+        assert_eq!(throttled.status, 429, "past the allowance the login is refused");
+        assert!(
+            !throttled.headers.iter().any(|(n, _)| n == "Set-Cookie"),
+            "a throttled login must not set a cookie"
+        );
     }
 
     #[test]
@@ -423,7 +469,7 @@ mod tests {
         // "correct horse battery staple" with each space sent as %20.
         let encoded = "correct%20horse%20battery%20staple";
         let body = format!("password={encoded}");
-        let response = login(&request(Method::Post, body.as_bytes()));
+        let response = login(&request(Method::Post, body.as_bytes()), None);
         assert_eq!(response.status, 302, "encoded spaces must match the real password");
     }
 

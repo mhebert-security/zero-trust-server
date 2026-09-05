@@ -22,8 +22,8 @@ pub struct Routed {
 /// Entry point for all request routing.
 /// Every request passes through here — no exceptions.
 /// `peer` is the client's address, threaded down to the endpoints that need
-/// it (the /pow/verify per-IP budget); it is None only when the connection
-/// layer could not resolve a socket address.
+/// it (the /pow/verify and /admin/login per-IP budgets); it is None only when
+/// the connection layer could not resolve a socket address.
 ///
 /// Middleware order is fixed and deliberate:
 /// 1. Public endpoints (static assets + /pow/verify + /health) — pre-session
@@ -132,7 +132,7 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
     }
     if request.method == Method::Post && request.path == "/admin/login" {
         return Routed {
-            response: headers::inject(admin::login(request)),
+            response: headers::inject(admin::login(request, peer)),
             session: None,
         };
     }

@@ -35,12 +35,27 @@ const VERIFY_RATE_WINDOW: Duration = Duration::from_secs(60);
 /// drops the windows that have already fully elapsed.
 const MAX_TRACKED_IPS: usize = 4096;
 
+/// How often the background sweeper drops consumed nonces that have passed
+/// their TTL. The entries are memory hygiene only (an expired nonce is refused
+/// by the expiry check before the table is consulted), so the interval is
+/// coarse.
+const CONSUMED_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+
 /// Per-IP submission counters for /pow/verify, keyed by client address.
 /// Each value is (submissions, window start). `OnceLock` because
 /// `HashMap::new` is not const: the first verify request builds the map, and
 /// every later request reuses it. The mutex serializes the one-thread-per-
 /// connection workers.
 static VERIFY_LIMITS: OnceLock<Mutex<HashMap<IpAddr, (u32, Instant)>>> = OnceLock::new();
+
+/// Consumed-challenge guard. A key is the SHA-256 digest of a fully verified
+/// nonce; the value is the nonce's issue time in unix seconds, kept only so
+/// the background sweeper knows when the entry is dead weight (a digest
+/// carries no timestamp, which is why this is a map rather than a plain set).
+/// Membership is the anti-replay check: a key present here already minted its
+/// one session. `OnceLock` + `Mutex`, the same shape as `VERIFY_LIMITS`, so
+/// the worker threads and the sweeper thread share one table.
+static CONSUMED_NONCES: OnceLock<Mutex<HashMap<[u8; 32], u64>>> = OnceLock::new();
 
 /// A parsed `PoW` solution submission from the browser.
 struct PowSubmission {
@@ -91,6 +106,14 @@ pub fn verify(request: &Request, peer: Option<IpAddr>) -> Response {
     // have DIFFICULTY leading zero bits?
     if !solution_is_valid(&submission.nonce, submission.candidate) {
         return bad_submission();
+    }
+
+    // One solve, one session: claim the nonce under the lock. The insert is
+    // the atomic grant gate, so two concurrent posts of the same valid solve
+    // cannot both pass; whichever claims the nonce first issues the cookie
+    // and the loser is refused as used. Fixes gap #14.
+    if !try_consume_nonce(&submission.nonce) {
+        return used_challenge();
     }
 
     // Valid solution — issue a session cookie and redirect.
@@ -211,19 +234,18 @@ fn verify_nonce_signature(nonce: &str, provided_sig: &str) -> bool {
     constant_time_eq(expected.as_bytes(), provided_sig.as_bytes())
 }
 
-/// Check whether the nonce has exceeded its TTL.
-/// Nonce format: `timestamp.random_hex` — parse the timestamp.
+/// The unix-second issue time embedded in a server-issued nonce
+/// (`timestamp.random_hex`), or None when the nonce carries none.
+fn nonce_issued_at(nonce: &str) -> Option<u64> {
+    let (timestamp_str, _) = nonce.split_once('.')?;
+    timestamp_str.parse().ok()
+}
+
+/// Check whether the nonce has exceeded its TTL. A nonce with no parseable
+/// issue time is treated as expired.
 fn nonce_is_expired(nonce: &str) -> bool {
-    let Some((timestamp_str, _)) = nonce.split_once('.') else {
-        return true; // malformed nonce, treat as expired
-    };
-
-    let issued_at: u64 = match timestamp_str.parse() {
-        Ok(t) => t,
-        Err(_) => return true,
-    };
-
-    current_unix_time().saturating_sub(issued_at) > CHALLENGE_TTL_SECS
+    nonce_issued_at(nonce)
+        .is_none_or(|issued_at| current_unix_time().saturating_sub(issued_at) > CHALLENGE_TTL_SECS)
 }
 
 /// Verify the `PoW` solution satisfies the difficulty requirement.
@@ -312,6 +334,65 @@ fn verify_limits() -> std::sync::MutexGuard<'static, HashMap<IpAddr, (u32, Insta
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Lock the shared consumed-nonce table, treating a poisoned mutex as
+/// unlocked.
+fn consumed_nonces() -> std::sync::MutexGuard<'static, HashMap<[u8; 32], u64>> {
+    CONSUMED_NONCES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Atomically claim a fully verified nonce for its one session. Returns true
+/// when this call won the claim (the entry was absent), false when the nonce
+/// already minted a session. The entry records the nonce's issue time so the
+/// sweeper can expire it.
+fn try_consume_nonce(nonce: &str) -> bool {
+    let Some(issued_at) = nonce_issued_at(nonce) else {
+        return false; // An unparseable nonce cannot be claimed.
+    };
+    let key = sha256(nonce.as_bytes());
+    match consumed_nonces().entry(key) {
+        Entry::Occupied(_) => false,
+        Entry::Vacant(slot) => {
+            slot.insert(issued_at);
+            true
+        }
+    }
+}
+
+/// Drop consumed nonces whose challenges have passed their TTL. Purely memory
+/// hygiene: an expired nonce is refused by the expiry check in `verify`
+/// before the consumed table is consulted, so a stale entry can never block a
+/// fresh challenge.
+fn sweep_consumed(now: u64) {
+    let oldest_live = now.saturating_sub(CHALLENGE_TTL_SECS);
+    consumed_nonces().retain(|_, &mut issued_at| issued_at >= oldest_live);
+}
+
+/// Start the daemon thread that sweeps consumed nonces on an interval. Called
+/// once from `main()` at startup; the thread lives for the process and needs
+/// no shutdown path because the process is the lifetime.
+pub fn spawn_consumed_sweeper() {
+    std::thread::Builder::new()
+        .name("pow-consumed-sweeper".into())
+        .spawn(|| loop {
+            std::thread::sleep(CONSUMED_SWEEP_INTERVAL);
+            sweep_consumed(current_unix_time());
+        })
+        .expect("failed to spawn the consumed-nonce sweeper");
+}
+
+/// 403 response for a challenge that already minted its one session.
+fn used_challenge() -> Response {
+    Response {
+        status: 403,
+        reason: "Forbidden",
+        headers: Vec::new(),
+        body: b"That puzzle was already solved. Reload for a fresh challenge.".to_vec(),
+    }
 }
 
 /// 429 response when a client has spent its per-IP allowance.
@@ -428,46 +509,99 @@ mod tests {
         IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d))
     }
 
-    /// Documents known gap #14: `pow::verify` is stateless — no record of
-    /// used nonces is kept, so replaying the SAME valid submission within the
-    /// nonce TTL (300s) succeeds twice, minting a second session cookie.
-    /// This is the intended current behavior (the cost is paid per solve, and
-    /// a replayed solve re-verifies cheaply); the note in `09_security_audit`
-    /// tracks it as accepted-until-volume-justifies-a-used-nonce-cache.
+    /// A valid solve mints exactly one session. Replaying the same submission
+    /// inside the nonce TTL is refused without a cookie. Fixes gap #14.
     #[test]
-    fn same_valid_submission_verifies_twice_replay_window() {
+    fn a_solve_mints_one_session_and_replays_are_refused() {
         set_secret();
         let (nonce, sig) = generate_challenge().expect("secret configured → challenge issued");
         let candidate = solve(&nonce);
 
         let first = verify(&post_request(&nonce, &sig, candidate), Some(REPLAY_IP));
-        let second = verify(&post_request(&nonce, &sig, candidate), Some(REPLAY_IP));
+        assert_eq!(first.status, 302, "the first submission mints the session");
+        assert!(
+            first.headers.iter().any(|(n, _)| n == "Set-Cookie"),
+            "the first response sets a session cookie"
+        );
 
-        assert_eq!(first.status, 302, "first submission must succeed");
-        assert_eq!(second.status, 302, "replayed submission also succeeds — gap #14");
-        let has_cookie = |r: &Response| r.headers.iter().any(|(n, _)| n == "Set-Cookie");
-        assert!(has_cookie(&first), "first response sets a session cookie");
-        assert!(has_cookie(&second), "replayed response sets another session cookie");
+        let replay = verify(&post_request(&nonce, &sig, candidate), Some(REPLAY_IP));
+        assert_ne!(replay.status, 302, "a replayed solve must not grant a second session");
+        assert!(
+            !replay.headers.iter().any(|(n, _)| n == "Set-Cookie"),
+            "a replayed solve must not set another cookie"
+        );
     }
 
-    /// A client inside its allowance keeps getting 302s; the first submission
-    /// past the allowance gets 429. Exercises the full handler path with a
-    /// dedicated source address so no other test shares its budget.
+    /// The shared consumed-nonce table is a single-use gate per challenge: the
+    /// same nonce cannot be claimed twice, and an unrelated nonce claims
+    /// fresh. Exercised directly so the property is tested without the cost of
+    /// a second full solve.
     #[test]
-    fn verify_exhausts_per_ip_allowance_then_returns_429() {
+    fn try_consume_is_a_single_use_gate_per_nonce() {
+        set_secret();
+        let (first, _) = generate_challenge().expect("secret configured → challenge issued");
+        assert!(try_consume_nonce(&first), "the first claim wins");
+        assert!(!try_consume_nonce(&first), "the same nonce cannot be claimed twice");
+
+        let (second, _) = generate_challenge().expect("secret configured → challenge issued");
+        assert!(try_consume_nonce(&second), "a different nonce claims fresh");
+    }
+
+    /// Sweeping drops consumed nonces whose challenge has passed its TTL and
+    /// keeps ones still inside it, so the table cannot grow with traffic.
+    #[test]
+    fn sweep_consumed_drops_only_expired_nonces() {
+        set_secret();
+        let (fresh, _) = generate_challenge().expect("secret configured → challenge issued");
+        assert!(try_consume_nonce(&fresh));
+
+        // A directly inserted old entry stands in for a consumed nonce issued
+        // long ago: issued at 1_000_000, swept at 2_000_000, far past the TTL.
+        {
+            let mut table = consumed_nonces();
+            table.insert([9u8; 32], 1_000_000);
+        }
+
+        sweep_consumed(2_000_000);
+
+        // The freshly issued nonce is recent (real wall clock), so it stays;
+        // the ancient planted entry is gone.
+        let table = consumed_nonces();
+        assert!(
+            table.contains_key(&sha256(fresh.as_bytes())),
+            "a nonce still inside its TTL is retained"
+        );
+        assert!(
+            !table.contains_key(&[9u8; 32]),
+            "a nonce past its TTL is swept"
+        );
+        drop(table);
+    }
+
+    /// The per-IP budget is enforced before anything else, whether or not the
+    /// submission is well formed: a real solve inside the allowance succeeds,
+    /// malformed attempts spend the same budget, and the first submission past
+    /// the limit answers 429. Exercises the full handler path with a dedicated
+    /// source address so no other test shares its budget.
+    #[test]
+    fn verify_enforces_the_per_ip_budget_and_answers_429_over_it() {
         set_secret();
         let source = ip(10, 55, 0, 1);
         let (nonce, sig) = generate_challenge().expect("secret configured → challenge issued");
         let candidate = solve(&nonce);
 
-        // Each call replays the same valid solve (gap #14: used nonces are not
-        // tracked), so the loop is only counting submissions against the IP.
-        for _ in 0..VERIFY_RATE_LIMIT {
-            let response = verify(&post_request(&nonce, &sig, candidate), Some(source));
-            assert_eq!(response.status, 302, "within the allowance, verify grants a session");
+        let first = verify(&post_request(&nonce, &sig, candidate), Some(source));
+        assert_eq!(first.status, 302, "a valid solve inside the allowance succeeds");
+
+        // The remaining allowance is spent by malformed posts (which parse to
+        // a 400 after counting), so the over-limit answer is exercised without
+        // nine more full solves.
+        for _ in 1..VERIFY_RATE_LIMIT {
+            let response = verify(&post_request("", "", 0), Some(source));
+            assert_eq!(response.status, 400, "malformed posts spend the allowance");
         }
 
-        let over = verify(&post_request(&nonce, &sig, candidate), Some(source));
+        let over = verify(&post_request("", "", 0), Some(source));
         assert_eq!(over.status, 429, "past the allowance, verify answers 429");
     }
 
