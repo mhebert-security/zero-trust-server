@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use crate::http::{Method, Request, Response};
 use crate::middleware::{headers, session};
-use crate::handlers::{challenge, content};
+use crate::handlers::{admin, challenge, content};
 
 /// Outcome of routing: the response to send, plus the session gate's ruling.
 ///
@@ -13,8 +13,9 @@ use crate::handlers::{challenge, content};
 pub struct Routed {
     pub response: Response,
     /// Some(true/false) when the session gate ran on this request; None for
-    /// the public pre-gate routes (static assets, /pow/verify, /health),
-    /// which never consulted the session cookie.
+    /// the public pre-gate routes (static assets, /pow/verify, /health,
+    /// /robots.txt, security.txt, /transparency, /admin), which never
+    /// consulted the session cookie.
     pub session: Option<bool>,
 }
 
@@ -31,14 +32,20 @@ pub struct Routed {
 /// 4. Security header injection (every response)
 pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
     // Step 0 — Public endpoints reachable WITHOUT a session.
-    // Three things are public before the gate: the static assets the
-    // challenge page needs (CSS/JS/WASM), the PoW submission endpoint, and
-    // /health. An unverified visitor must be able to submit a solution to
-    // /pow/verify to RECEIVE a session cookie; and /health must answer 200 to
-    // a cookie-less uptime monitor. If either sat behind the session gate
-    // below, the challenge could never complete (assets come back as
-    // challenge HTML, the verify POST never reaches pow::verify) and an
-    // external monitor would false-alarm on every check.
+    // These sit before the gate for one shared reason: each is a surface a
+    // cookie-less visitor must reach. The static assets the challenge page
+    // needs (CSS/JS/WASM) and the PoW submission endpoint let an unverified
+    // visitor complete the puzzle and RECEIVE a session cookie; /health must
+    // answer 200 to a cookie-less uptime monitor; /robots.txt and
+    // /.well-known/security.txt are the public crawler and researcher doors;
+    // /transparency explains the journal to someone who has not solved
+    // anything yet; and /admin plus /admin/login carry their own credential
+    // (a cookie signed with ZTS_ADMIN_SECRET) that must not be re-gated by
+    // the visitor puzzle. If any of these sat behind the session gate below,
+    // the challenge could never complete (assets come back as challenge HTML,
+    // the verify POST never reaches pow::verify), a monitor would false-alarm
+    // on every check, and the operator would be locked out the moment they
+    // cleared their cookies.
     //
     // HEAD routes as GET on the public endpoints too, so a monitor or link
     // checker that probes /health or an asset with HEAD sees the same result
@@ -96,6 +103,42 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
     if is_get(&request.method) && request.path == "/.well-known/security.txt" {
         return Routed {
             response: headers::inject(content::security_txt()),
+            session: None,
+        };
+    }
+
+    // /transparency — what this server records, and what it never does. It
+    // is the journal explaining itself to the visitor who has not solved
+    // anything yet, so the gate must not stand between it and them.
+    if is_get(&request.method) && request.path == "/transparency" {
+        return Routed {
+            response: headers::inject(content::transparency()),
+            session: None,
+        };
+    }
+
+    // /admin/login and /admin — the operator dashboard. Both live pre-gate:
+    // the admin session is its own credential. GET /admin/login shows the
+    // password form (or bounces a request that already carries a valid admin
+    // cookie to the dashboard); POST /admin/login checks the password and
+    // mints the zts-admin cookie; GET /admin renders the metrics (or bounces
+    // a cookie-less request to the login form). All three answer with the
+    // standard header set, exactly like every other route.
+    if is_get(&request.method) && request.path == "/admin/login" {
+        return Routed {
+            response: headers::inject(admin::login_form(request)),
+            session: None,
+        };
+    }
+    if request.method == Method::Post && request.path == "/admin/login" {
+        return Routed {
+            response: headers::inject(admin::login(request)),
+            session: None,
+        };
+    }
+    if is_get(&request.method) && request.path == "/admin" {
+        return Routed {
+            response: headers::inject(admin::dashboard(request)),
             session: None,
         };
     }
@@ -216,6 +259,48 @@ mod tests {
             .headers
             .iter()
             .any(|(n, v)| n == "Content-Type" && v == "text/plain; charset=utf-8"));
+    }
+
+    #[test]
+    fn transparency_is_public_pre_gate() {
+        // A cookie-less visitor must read what the server records before
+        // deciding whether to solve anything. Pre-gate, 200, injected.
+        let routed = handle(&request(Method::Get, "/transparency"), None);
+        let resp = &routed.response;
+        assert_eq!(resp.status, 200);
+        assert_eq!(routed.session, None, "/transparency is a public route");
+        assert!(has_header(resp, "Content-Security-Policy"));
+        let body = String::from_utf8(resp.body.clone()).expect("html is utf-8");
+        assert!(body.contains("what this server records"),
+                "the page states its subject plainly");
+    }
+
+    #[test]
+    fn admin_pages_sit_before_the_gate() {
+        // The operator dashboard must be reachable without a visitor session:
+        // an operator who cleared cookies and hits /admin must not be asked
+        // to solve the visitor puzzle.
+        let login = handle(&request(Method::Get, "/admin/login"), None);
+        assert_eq!(login.session, None, "/admin/login is not PoW gated");
+        assert_eq!(login.response.status, 200, "the login form serves pre-gate");
+        let login_body = String::from_utf8(login.response.body).expect("utf-8");
+        assert!(login_body.contains("password"), "the form asks for the password");
+
+        // GET /admin with no admin cookie redirects to the login form, which
+        // is dashboard gating, not the visitor puzzle.
+        let admin = handle(&request(Method::Get, "/admin"), None);
+        assert_eq!(admin.session, None, "/admin is not PoW gated");
+        assert_eq!(admin.response.status, 302);
+        assert_eq!(
+            admin
+                .response
+                .headers
+                .iter()
+                .find(|(n, _)| n == "Location")
+                .unwrap()
+                .1,
+            "/admin/login"
+        );
     }
 
     #[test]

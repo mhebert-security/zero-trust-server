@@ -94,6 +94,8 @@ pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
                         method: audit::method_name(&req.method).to_string(),
                         path: req.path.clone(),
                         session: None,
+                        pow_solve_ms: None,
+                        request_count: None,
                     };
                     (respond(&req, cfg), ctx, head)
                 } else {
@@ -108,6 +110,8 @@ pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
                         method: audit::method_token(&buf),
                         path: audit::path_token(&buf),
                         session: None,
+                        pow_solve_ms: None,
+                        request_count: None,
                     };
                     (redirect_to_https(&cfg.public_host, "/", None), ctx, false)
                 };

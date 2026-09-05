@@ -5,7 +5,8 @@
 //! StandardOutput=journal), parseable without a log parser:
 //!
 //! ```text
-//! audit  <unix_ms>  <listener>  <peer>  <method>  <path>  <status>  <session>  <latency_ms>
+//! audit  <unix_ms>  <listener>  <peer>  <method>  <path>  <status>
+//!        <session>  <latency_ms>  <pow_solve_ms>  <request_count_this_session>
 //! ```
 //!
 //! Fields are separated by a single TAB. journald already stamps arrival
@@ -16,6 +17,14 @@
 //! was possible (a request rejected before routing, a public pre-gate route,
 //! or the plaintext redirect/ACME listener which has no gate). Latency is
 //! connection-handler start → last byte written.
+//!
+//! The last two columns were appended on the right (2026-09-05) so parsers
+//! that read the original nine fields keep working unchanged. `pow_solve_ms`
+//! is the milliseconds between challenge issue and solve arrival for a
+//! successful POST /pow/verify, and "-" for every other request.
+//! `request_count_this_session` is the running count of requests made with
+//! the presented valid session (1 for the first such request), and "-" where
+//! no valid session was presented.
 //!
 //! The two-phase shape mirrors how the pieces are known: a request's method,
 //! path and peer are understood where the request is read, but its status and
@@ -47,6 +56,13 @@ pub struct AuditCtx {
     /// pre-gate route such as /health, or the plaintext listener. The audit
     /// line renders None as "na".
     pub session: Option<bool>,
+    /// Milliseconds between challenge issue and solve arrival, present only
+    /// for a solved POST /pow/verify. None renders as "-".
+    pub pow_solve_ms: Option<u64>,
+    /// This request's number within its valid session (1 = first request
+    /// carrying the token), present only where a valid session was presented
+    /// and the gate ruled yes. None renders as "-".
+    pub request_count: Option<u64>,
 }
 
 impl AuditCtx {
@@ -68,7 +84,7 @@ impl AuditCtx {
             None => "na",
         };
         format!(
-            "audit\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "audit\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             unix_ms(),
             self.listener,
             sanitize(&self.peer),
@@ -77,6 +93,8 @@ impl AuditCtx {
             status,
             session,
             latency_ms,
+            field_or_hyphen(self.pow_solve_ms),
+            field_or_hyphen(self.request_count),
         )
     }
 }
@@ -146,6 +164,13 @@ const fn ms_u64(elapsed: Duration) -> u64 {
     elapsed.as_millis() as u64
 }
 
+/// Render an optional integer audit field as its value, or "-" when absent.
+/// The hyphen is the record's "not applicable" token, matching the missing
+/// method/path tokens above.
+fn field_or_hyphen(value: Option<u64>) -> String {
+    value.map_or_else(|| "-".to_string(), |v| v.to_string())
+}
+
 /// Replace control characters so a hostile path/host header can never forge
 /// an extra log line or field.
 fn sanitize(s: &str) -> String {
@@ -171,6 +196,8 @@ mod tests {
             method: "GET".to_string(),
             path: "/".to_string(),
             session,
+            pow_solve_ms: None,
+            request_count: None,
         }
     }
 
@@ -217,10 +244,37 @@ mod tests {
             method: "GET".to_string(),
             path: "/x".to_string(),
             session: None,
+            pow_solve_ms: None,
+            request_count: None,
         };
         let line = c.line(301, 2);
         assert_eq!(line.matches('\n').count(), 0);
         assert!(!line.contains('\r'));
-        assert_eq!(line.split('\t').count(), 9);
+        assert_eq!(line.split('\t').count(), 11);
+    }
+
+    #[test]
+    fn appended_fields_default_to_hyphen() {
+        // A plain request has no solve timing and no session count; both
+        // rightmost columns read "-" so the record stays TAB-shape-stable.
+        let line = ctx(Some(true)).line(200, 3);
+        let fields: Vec<&str> = line.split('\t').collect();
+        assert_eq!(fields.len(), 11);
+        assert_eq!(fields[9], "-");
+        assert_eq!(fields[10], "-");
+    }
+
+    #[test]
+    fn pow_solve_and_session_count_render_when_present() {
+        // A solved /pow/verify and a counted session request each fill their
+        // column, proving the two new fields sit in the last two positions.
+        let mut c = ctx(Some(true));
+        c.pow_solve_ms = Some(412);
+        c.request_count = Some(7);
+        let line = c.line(302, 5);
+        let fields: Vec<&str> = line.split('\t').collect();
+        assert_eq!(fields.len(), 11);
+        assert_eq!(fields[9], "412");
+        assert_eq!(fields[10], "7");
     }
 }

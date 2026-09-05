@@ -104,6 +104,12 @@ fn build_challenge_html(
         </p>
     </div>
 
+    <!-- The one disclosure on the gate itself: what this server records is
+         answered before the visitor spends a single hash on the puzzle. -->
+    <footer class="gate-footer">
+        <a href="/transparency">what this server records</a>
+    </footer>
+
     <!-- External module: CSP script-src 'self' forbids inline scripts.
          The bootstrap lives in /static/challenge.js so the same-origin
          rule allows it to load, and it can import the WASM glue. -->

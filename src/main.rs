@@ -7,17 +7,20 @@ use std::time::{Duration, Instant};
 
 mod audit;
 mod crypto;
+mod metrics;
 mod tls;
 mod http;
 mod router;
 mod redirect;
 mod semaphore;
 mod middleware {
+    pub mod admin;
+    pub mod headers;
     pub mod pow;
     pub mod session;
-    pub mod headers;
 }
 mod handlers {
+    pub mod admin;
     pub mod challenge;
     pub mod content;
 }
@@ -54,6 +57,18 @@ fn main() {
         "SESSION_SECRET",
         "The server cannot issue or verify session cookies.",
     );
+    // The operator dashboard at /admin has its own two secrets, required like
+    // SESSION_SECRET: a signing key for the zts-admin cookie and the password
+    // that mints it. An admin surface that silently accepted no password, or
+    // signed cookies with a missing key, would be worse than none.
+    let _admin_secret = env_or_fail(
+        "ZTS_ADMIN_SECRET",
+        "ZTS_ADMIN_SECRET signs the zts-admin cookie that opens /admin.",
+    );
+    let _admin_password = env_or_fail(
+        "ZTS_ADMIN_PASSWORD",
+        "ZTS_ADMIN_PASSWORD is the password that opens /admin/login.",
+    );
     let cert_path = env_or_fail(
         "CERT_PATH",
         "Point CERT_PATH at the PEM certificate chain.",
@@ -87,6 +102,10 @@ fn main() {
 
     // Load TLS config once at startup.
     let tls_config = tls::load_config(&cert_path, &key_path);
+
+    // Start the process-global metrics clock at startup, so the uptime shown
+    // on /admin counts from process start rather than from the first request.
+    metrics::init_at_startup();
 
     // Bound total concurrency across BOTH listeners.
     let semaphore = Arc::new(semaphore::Semaphore::new(MAX_CONNECTIONS));
@@ -247,6 +266,8 @@ fn reject_saturated_http(stream: &mut TcpStream) {
         method: "-".to_string(),
         path: "-".to_string(),
         session: None,
+        pow_solve_ms: None,
+        request_count: None,
     }
     .finish(503, started.elapsed());
 }
@@ -354,6 +375,8 @@ fn handle_tls_connection(
                     method: audit::method_token(&buf),
                     path: audit::path_token(&buf),
                     session: None,
+                    pow_solve_ms: None,
+                    request_count: None,
                 };
                 let response =
                     middleware::headers::inject(error_response);
@@ -373,12 +396,47 @@ fn handle_tls_connection(
     // Route through middleware chain and handlers.
     let routed = router::handle(&request, peer_ip);
 
+    // The dashboard counters and the two appended audit columns are computed
+    // here, in the one place that knows how routing ruled, so a number the
+    // operator sees on /admin equals the number the audit line records.
+    metrics::global().record_request(&path);
+
+    // Solve time: milliseconds between challenge issue and solve arrival,
+    // present only for a successful POST /pow/verify (a 302 that set the
+    // session cookie). The same value feeds the audit column and the
+    // dashboard's ring buffer, so the two always agree.
+    let pow_solve_ms = if method == "POST"
+        && path == "/pow/verify"
+        && routed.response.status == 302
+    {
+        let elapsed = middleware::pow::solve_elapsed_ms(&request.body);
+        if let Some(ms) = elapsed {
+            metrics::global().record_solve(ms);
+        }
+        elapsed
+    } else {
+        None
+    };
+
+    // The request's number within the valid session it presented, present
+    // only where the gate ruled yes. It counts exactly the requests the
+    // session column marks "yes": the counter starts at 1 for the first such
+    // request and climbs from there.
+    let request_count = if routed.session == Some(true) {
+        middleware::session::session_key(&request)
+            .map(|key| metrics::global().record_valid_request(key))
+    } else {
+        None
+    };
+
     let ctx = audit::AuditCtx {
         listener: "tls",
         peer,
         method,
         path,
         session: routed.session,
+        pow_solve_ms,
+        request_count,
     };
     send_response(&mut tls_stream, routed.response, &ctx, started);
 }

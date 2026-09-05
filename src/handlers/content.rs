@@ -26,6 +26,15 @@ pub fn contact(_request: &Request) -> Response {
     html_response(include_str!("../../static/contact.html"))
 }
 
+/// Serve /transparency — what this server records, and what it never does.
+/// Public pre-gate like robots.txt: the page is the journal explaining
+/// itself to a visitor who has not solved anything yet, so the gate must not
+/// stand between them and it. It is a normal `.page` HTML document and gets
+/// the full security header set from the router.
+pub fn transparency() -> Response {
+    html_response(include_str!("../../static/transparency.html"))
+}
+
 /// Serve /robots.txt for crawlers.
 /// This is a public pre-gate route: a bot that must solve the puzzle to read
 /// the crawl rules would never crawl anything. The router calls it before the
@@ -212,5 +221,13 @@ mod tests {
                 "page head must declare the favicon"
             );
         }
+    }
+
+    #[test]
+    fn transparency_page_declares_favicon_and_stylesheet() {
+        let response = transparency();
+        let body = String::from_utf8(response.body).expect("html is utf-8");
+        assert!(body.contains(r#"<link rel="icon" href="/static/favicon.ico">"#));
+        assert!(body.contains(r#"<link rel="stylesheet" href="/static/style.css">"#));
     }
 }

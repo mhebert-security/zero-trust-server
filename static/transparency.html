@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matthew Hebert · what this server records</title>
+    <meta name="description" content="What this server records about a visit, what it never records, and how long the record lasts.">
+    <meta property="og:title" content="Matthew Hebert · what this server records">
+    <meta property="og:description" content="What this server records about a visit, what it never records, and how long the record lasts.">
+    <meta property="og:url" content="https://mhebert.dev/transparency">
+    <link rel="icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+    <header class="page-head">
+        <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+        <nav class="nav" aria-label="Site">
+            <a href="/">index</a>
+            <a href="/projects">projects</a>
+            <a href="/about">about</a>
+            <a href="/writing">writing</a>
+            <a href="/contact">contact</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">what this server records</h1>
+        <p class="lead">
+            One small program serves every page here, and this page is that program telling you what it wrote down about your visit. The answer is short enough to state plainly.
+        </p>
+
+        <h2 class="rule">recorded</h2>
+        <p>
+            For each request the server writes one line to its own journal. That line holds your IP address, the path you asked for, the HTTP method, the response status, how long the request took, and whether you carried a valid session. When you solve the proof of work, the line also records the time the puzzle took to solve.
+        </p>
+        <p>
+            The journal exists for two reasons: a break-in must be reconstructable, and abuse must be visible. It lives on the server, in the system log, and nowhere else.
+        </p>
+
+        <h2 class="rule">not recorded</h2>
+        <p>
+            There is no tracking pixel, no third-party analytics script, no advertising identifier, and no fingerprint of your browser. The pages carry no script at all once the puzzle is done, so there is no code that could report back to anyone.
+        </p>
+        <p>
+            The only durable thing your browser keeps is the session cookie, and it says less than most cookies. The cookie is an expiry time plus a signature. It proves you passed the proof of work, and it says nothing about who you are. It is not shared across sites, it cannot be read by any other domain, and it stops meaning anything within 24 hours.
+        </p>
+        <p>
+            The journal is capped at 60 days and then forgotten. No analytics company and no advertiser sees any part of it, because the log never leaves this server.
+        </p>
+    </main>
+
+    <footer class="page-footer">
+        served by <code>zero-trust-server</code> · HTTP/1.1 from raw sockets · rustls TLS 1.3 · a proof of work gate · <a href="/transparency">what this server records</a>
+    </footer>
+</body>
+</html>

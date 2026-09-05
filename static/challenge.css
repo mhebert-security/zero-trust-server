@@ -67,6 +67,30 @@ body {
     max-width: 30rem;
 }
 
+/* The quiet disclosure pinned to the bottom of the gate. It answers "what
+ * does this server record" before the visitor spends a hash on the puzzle,
+ * so the text is dim and never blocks the centered puzzle. */
+.gate-footer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 1rem;
+    text-align: center;
+    font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+    font-size: 0.72rem;
+}
+
+.gate-footer a {
+    color: #666666;
+    border-bottom: 1px solid transparent;
+    text-decoration: none;
+}
+
+.gate-footer a:hover {
+    color: #9c9c9c;
+    border-bottom-color: currentColor;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .status::after {
         animation: none;

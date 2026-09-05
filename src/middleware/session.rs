@@ -76,21 +76,48 @@ pub fn issue_cookie() -> Option<String> {
     ))
 }
 
+/// A parsed session token that passed HMAC verification and expiry.
+/// Carries the raw signature bytes so the per-session request counter can
+/// key on the token without re-hashing it.
+struct VerifiedToken {
+    expires_at: u64,
+    /// The 32 HMAC-SHA256 bytes that prove the token is server-issued.
+    signature: [u8; 32],
+}
+
+/// The raw HMAC signature bytes of the request's valid session cookie.
+/// The bytes identify that session uniquely to the metrics counters. Some
+/// only when the presented token verifies and is unexpired, which is exactly
+/// when `is_valid` returns true, so the request counter advances on the same
+/// requests the session column records as "yes".
+pub fn session_key(request: &Request) -> Option<[u8; 32]> {
+    let secret = get_secret()?;
+    let cookie_value = extract_cookie(request, SESSION_COOKIE_NAME)?;
+    verified_token(&cookie_value, &secret).map(|t| t.signature)
+}
+
 /// Verify a session token string.
 /// Returns Some(Session) if valid, None if invalid or expired.
 /// Performs constant-time HMAC comparison to prevent timing attacks.
 fn verify_token(token: &str, secret: &str) -> Option<Session> {
+    verified_token(token, secret).map(|t| Session {
+        expires_at: t.expires_at,
+    })
+}
+
+/// Verify a token string and return the verified parts.
+fn verified_token(token: &str, secret: &str) -> Option<VerifiedToken> {
     // Split on the last '.' to separate payload from signature.
     let dot_pos = token.rfind('.')?;
     let payload = &token[..dot_pos];
     let provided_signature_hex = &token[dot_pos + 1..];
 
     // Recompute the expected HMAC from the payload and secret.
-    let expected_signature = hmac_sha256(
+    let signature = hmac_sha256(
         secret.as_bytes(),
         payload.as_bytes(),
     );
-    let expected_hex = to_hex(&expected_signature);
+    let expected_hex = to_hex(&signature);
 
     // Constant-time comparison.
     // Prevents timing side-channel attacks.
@@ -111,12 +138,18 @@ fn verify_token(token: &str, secret: &str) -> Option<Session> {
         return None; // Session expired.
     }
 
-    Some(Session { expires_at })
+    Some(VerifiedToken {
+        expires_at,
+        signature,
+    })
 }
 
 /// Extract a named cookie value from the Cookie request header.
 /// Returns None if the header is absent or the cookie is not found.
-fn extract_cookie(request: &Request, name: &str) -> Option<String> {
+/// `pub` so the admin middleware can read its own `zts-admin` cookie through
+/// the same parser instead of duplicating it; the enclosing module is private,
+/// so this stays crate-internal either way.
+pub fn extract_cookie(request: &Request, name: &str) -> Option<String> {
     let cookie_header = request.headers.get("cookie")?;
 
     // Cookie header format: name=value; name2=value2
@@ -195,6 +228,39 @@ mod tests {
             verify_token(&forged, &secret).is_none(),
             "a one-bit-forged signature must not verify"
         );
+    }
+
+    /// A valid cookie yields exactly the signature bytes that signed it (so
+    /// the metrics counter key is stable per token), and a forged cookie
+    /// yields nothing.
+    #[test]
+    fn session_key_is_the_tokens_raw_signature_bytes() {
+        set_secret();
+        let cookie = issue_cookie().expect("secret configured → cookie issued");
+        let token = cookie
+            .strip_prefix("zts=")
+            .and_then(|t| t.split(';').next())
+            .expect("well-formed Set-Cookie header");
+        let (_, sig_hex) = token.split_once('.').expect("payload.signature");
+
+        let key = session_key(&request_with_cookie(&cookie))
+            .expect("a valid cookie yields a session key");
+        assert_eq!(to_hex(&key), sig_hex, "key is the token's raw HMAC bytes");
+
+        let forged = request_with_cookie(&format!("zts=forged.{sig_hex}"));
+        assert!(session_key(&forged).is_none(), "a forged payload yields no key");
+    }
+
+    fn request_with_cookie(cookie: &str) -> Request {
+        use std::collections::HashMap;
+        let mut headers = HashMap::new();
+        headers.insert("cookie".to_string(), cookie.to_string());
+        Request {
+            method: crate::http::Method::Get,
+            path: "/".to_string(),
+            headers,
+            body: Vec::new(),
+        }
     }
 
     fn decode_hex(s: &str) -> Vec<u8> {
