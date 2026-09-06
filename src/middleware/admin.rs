@@ -35,12 +35,13 @@ const ADMIN_COOKIE_NAME: &str = "zts-admin";
 const ADMIN_SESSION_DURATION_SECS: u64 = 4 * 60 * 60;
 
 /// Max password attempts allowed per IP inside the window on /admin/login.
-/// Ten tolerates a few wrong guesses (an operator mistypes) while capping
-/// online guessing against the dashboard at two attempts a minute.
-const MAX_LOGIN_ATTEMPTS: u32 = 10;
+/// Five tolerates an operator who mistypes once or twice while capping online
+/// guessing at one attempt per two minutes. A successful login clears the
+/// budget, so the count is effectively of consecutive failed attempts.
+const MAX_LOGIN_ATTEMPTS: u32 = 5;
 
-/// Width of the per-IP /admin/login attempt window.
-const LOGIN_RATE_WINDOW: Duration = Duration::from_secs(300);
+/// Width of the per-IP /admin/login attempt window: ten minutes.
+const LOGIN_RATE_WINDOW: Duration = Duration::from_secs(600);
 
 /// Cap on tracked IPs before stale windows are swept. The admin login draws
 /// only the operator, so even a scanner spraying source addresses cannot fill

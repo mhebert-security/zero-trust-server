@@ -440,23 +440,21 @@ mod tests {
     }
 
     /// Repeated wrong passwords from one address eventually hit the per-IP
-    /// throttle and answer 429 instead of 401. The exact boundary is pinned
-    /// in the middleware unit tests; this exercises the handler end to end.
+    /// throttle and answer 429 instead of 401. Five guesses are answered 401;
+    /// the sixth is refused. The exact boundary is pinned in the middleware
+    /// unit tests; this exercises the handler end to end.
     #[test]
     fn repeated_wrong_passwords_eventually_answer_429() {
         set_admin_env();
         // Dedicated address so no other test shares this IP's attempt budget.
         let ip = IpAddr::V4(std::net::Ipv4Addr::new(10, 91, 0, 9));
 
-        for _ in 0..10 {
+        for _ in 0..5 {
             let response = login(&request(Method::Post, b"password=nope"), Some(ip));
-            assert!(
-                response.status == 401 || response.status == 429,
-                "a wrong password inside the budget is 401, over it 429"
-            );
+            assert_eq!(response.status, 401, "a wrong password inside the budget is 401");
         }
         let throttled = login(&request(Method::Post, b"password=nope"), Some(ip));
-        assert_eq!(throttled.status, 429, "past the allowance the login is refused");
+        assert_eq!(throttled.status, 429, "past the five-attempt allowance the login is refused");
         assert!(
             !throttled.headers.iter().any(|(n, _)| n == "Set-Cookie"),
             "a throttled login must not set a cookie"
