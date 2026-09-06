@@ -206,8 +206,12 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hmac::{Hmac, Mac};
     use proptest::prelude::*;
     use sha2::{Digest, Sha256};
+
+    /// HMAC-SHA256 instantiated on the RustCrypto stack.
+    type HmacSha256 = Hmac<Sha256>;
 
     /// FIPS 180-4 §B.1: `SHA-256("abc")` = `ba7816bf…f20015ad`.
     #[test]
@@ -272,30 +276,17 @@ mod tests {
         out
     }
 
-    /// Independent HMAC-SHA256 per FIPS 198-1, built from `oracle_sha256`.
-    /// The structure follows the same published algorithm as `hmac_sha256`,
-    /// but every hash primitive inside is `RustCrypto`, so the two share no
-    /// code path and cannot mask each other's bugs.
+    /// Independent HMAC-SHA256 from the RustCrypto `hmac` crate, which runs
+    /// on the RustCrypto `sha2` it depends on. Neither primitive is shared
+    /// with `hmac_sha256` (that function calls the hand-rolled `sha256`), so
+    /// agreement across arbitrary keys and messages means the hand-rolled
+    /// code left neither FIPS 198-1 nor FIPS 180-4.
     fn oracle_hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
-        const BLOCK: usize = 64;
-        let mut k = [0u8; BLOCK];
-        if key.len() > BLOCK {
-            let hashed = oracle_sha256(key);
-            k[..32].copy_from_slice(&hashed);
-        } else {
-            k[..key.len()].copy_from_slice(key);
-        }
-        let mut inner = Vec::with_capacity(BLOCK + message.len());
-        for &b in &k {
-            inner.push(b ^ 0x36);
-        }
-        inner.extend_from_slice(message);
-        let mut outer = Vec::with_capacity(BLOCK + 32);
-        for &b in &k {
-            outer.push(b ^ 0x5c);
-        }
-        outer.extend_from_slice(&oracle_sha256(&inner));
-        oracle_sha256(&outer)
+        let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+        mac.update(message);
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&mac.finalize().into_bytes());
+        out
     }
 
     /// FIPS padding appends 0x80, zeroes to byte 56 of a block, then an
@@ -325,10 +316,30 @@ mod tests {
         }
     }
 
+    /// The case budget for the differential property tests. One hundred
+    /// thousand is the strength target for the hand-rolled primitives;
+    /// `PROPTEST_CASES` overrides it so the MIRI run can drop to a few dozen
+    /// cases that the interpreter finishes in reasonable time.
+    fn property_cases() -> u32 {
+        std::env::var("PROPTEST_CASES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100_000)
+    }
+
+    /// The two differential property tests share one configured budget.
+    fn crypto_proptest_config() -> proptest::test_runner::Config {
+        proptest::test_runner::Config {
+            cases: property_cases(),
+            ..proptest::test_runner::Config::default()
+        }
+    }
+
     // Property: sha256 agrees with the RustCrypto oracle on arbitrary
     // messages up to 2048 bytes. Random lengths reach padding and block
     // boundaries the fixed list above cannot cover exhaustively.
     proptest! {
+        #![proptest_config(crypto_proptest_config())]
         #[test]
         fn sha256_matches_rustcrypto_for_arbitrary_inputs(
             message in proptest::collection::vec(any::<u8>(), 0..2048),
@@ -337,11 +348,12 @@ mod tests {
         }
     }
 
-    // Property: hmac_sha256 agrees with the independent FIPS 198-1 oracle.
-    // Key lengths up to 256 force the RFC 2104 hash-first branch (keys over
-    // 64 bytes) and the pad-direct branch (keys under it) across messages
-    // of arbitrary length.
+    // Property: hmac_sha256 agrees with the independent RustCrypto hmac
+    // oracle. Key lengths up to 256 force the RFC 2104 hash-first branch
+    // (keys over 64 bytes) and the pad-direct branch (keys under it) across
+    // messages of arbitrary length.
     proptest! {
+        #![proptest_config(crypto_proptest_config())]
         #[test]
         fn hmac_sha256_matches_rustcrypto_for_arbitrary_inputs(
             key in proptest::collection::vec(any::<u8>(), 0..256),

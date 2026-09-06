@@ -18,9 +18,11 @@ rustls = { version = "0.23", features = ["prefer-post-quantum"] }
 rustls-pemfile = "2.0"
 
 # Test-only crates, never linked into the shipped binary.
-# proptest drives property tests; sha2 is an independent, widely audited
-# SHA-256 used as an oracle to differentially check the hand-rolled
-# implementation in crypto.rs across arbitrary inputs.
+# proptest drives property tests; sha2 and hmac are the independent, widely
+# audited RustCrypto implementations used as oracles to differentially check
+# the hand-rolled primitives in crypto.rs across arbitrary inputs. The SHA-256
+# and HMAC-SHA256 property tests run 100,000 cases by default (PROPTEST_CASES
+# lowers the count for MIRI).
 #
 # proptest is pulled without its default features: the `fork` and `timeout`
 # features run cases in child processes and threads, which the MIRI
@@ -29,6 +31,7 @@ rustls-pemfile = "2.0"
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
 sha2 = "0.10"
+hmac = "0.12"
 
 [profile.release]
 opt-level = "z"    # optimize for binary size
