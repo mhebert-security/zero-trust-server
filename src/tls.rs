@@ -142,6 +142,21 @@ pub fn load_config(cert_path: &str, key_path: &str) -> Arc<ServerConfig> {
     Arc::new(config)
 }
 
+/// The key exchange groups this process offers to TLS 1.3 clients, most
+/// preferred first, as rustls display names (`X25519MLKEM768`, `X25519`).
+/// [`load_config`] builds its config from exactly the provider this reads,
+/// so the first name is the hybrid post-quantum group that a modern client
+/// negotiates and the last is the classic fallback every client shares.
+/// `main()` prints the list at startup so the active algorithm is visible in
+/// the service journal without reading configuration.
+pub fn offered_kx_groups() -> Vec<String> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .kx_groups
+        .iter()
+        .map(|group| format!("{:?}", group.name()))
+        .collect()
+}
+
 /// Wrap a raw `TcpStream` in a TLS server connection.
 /// The TLS handshake completes on first `read()` call, not here.
 pub fn wrap(
@@ -267,6 +282,24 @@ mod tests {
             .name();
         server_thread.join().expect("server thread finishes clean");
         group
+    }
+
+    /// The startup helper that names the active key exchange must lead with
+    /// the hybrid group: the negotiation tests above rely on the server
+    /// preferring it, so a change that reorders or drops it fails here first,
+    /// at the same cheap layer as the provider membership test.
+    #[test]
+    fn offered_kx_groups_lead_with_the_hybrid() {
+        let groups = super::offered_kx_groups();
+        assert_eq!(
+            groups.first().map(String::as_str),
+            Some("X25519MLKEM768"),
+            "the preferred key exchange is the hybrid group; groups: {groups:?}"
+        );
+        assert!(
+            groups.iter().any(|g| g == "X25519"),
+            "the classic group remains as the fallback; groups: {groups:?}"
+        );
     }
 
     /// The aws-lc-rs provider must list the hybrid group at all. This is the

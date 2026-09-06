@@ -105,6 +105,13 @@ fn main() {
     // Load TLS config once at startup.
     let tls_config = tls::load_config(&cert_path, &key_path);
 
+    // Name the active key exchange at startup. The first group offered is the
+    // hybrid post-quantum X25519MLKEM768, what a modern client negotiates; a
+    // classic-only client still lands on the last. The line makes the TLS
+    // posture visible in the service journal without reading configuration.
+    let kx = tls::offered_kx_groups();
+    println!("TLS 1.3 key exchange (preferred first): {}", kx.join(" "));
+
     // Start the process-global metrics clock at startup, so the uptime shown
     // on /admin counts from process start rather than from the first request.
     metrics::init_at_startup();
