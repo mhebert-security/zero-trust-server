@@ -509,8 +509,9 @@ mod tests {
         IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d))
     }
 
-    /// A valid solve mints exactly one session. Replaying the same submission
-    /// inside the nonce TTL is refused without a cookie. Fixes gap #14.
+    /// A valid solve mints exactly one session. Submitting the identical
+    /// solution a second time, still inside the nonce TTL, is refused with an
+    /// exact 403 (not a fresh cookie, not a silent pass). Fixes gap #14.
     #[test]
     fn a_solve_mints_one_session_and_replays_are_refused() {
         set_secret();
@@ -524,8 +525,12 @@ mod tests {
             "the first response sets a session cookie"
         );
 
+        // The replay posts the same valid solve from the same address inside
+        // the challenge TTL and well under the per-IP budget, so the only
+        // refusal the handler can give is the consumed-nonce 403.
         let replay = verify(&post_request(&nonce, &sig, candidate), Some(REPLAY_IP));
-        assert_ne!(replay.status, 302, "a replayed solve must not grant a second session");
+        assert_eq!(replay.status, 403, "a replayed solve answers an exact 403");
+        assert_eq!(replay.reason, "Forbidden");
         assert!(
             !replay.headers.iter().any(|(n, _)| n == "Set-Cookie"),
             "a replayed solve must not set another cookie"
