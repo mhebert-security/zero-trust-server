@@ -367,6 +367,12 @@ mod tests {
                 "{} carries the footer", page.slug);
             assert!(!page.description.is_empty(),
                 "{} has a meta description", page.slug);
+            // Every project writeup names its public repository, so a reader
+            // who lands on the page from a card can reach the code without
+            // hunting for it. Each slug mirrors the GitHub repo name.
+            assert!(page.html.contains(&format!(
+                "https://github.com/mhebert-security/{}", page.slug)),
+                "{} links to its repository", page.slug);
         }
     }
 
