@@ -1,0 +1,12 @@
+{
+  "name": "zero-trust-server-dev-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Dev capture tooling for the zero-trust server (Playwright screenshots)",
+  "scripts": {
+    "capture": "node scripts/capture-stage.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

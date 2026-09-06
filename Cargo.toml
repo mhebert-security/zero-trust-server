@@ -1,0 +1,37 @@
+[package]
+name = "zero-trust-server"
+version = "0.1.0"
+edition = "2024"
+
+# rustls is the single justified exception to standard-library-only.
+# Pure Rust TLS implementation, no OpenSSL, no C dependencies.
+# Everything else — HTTP parsing, routing, session management,
+# PoW challenge logic, security headers — is written against std only.
+#
+# prefer-post-quantum pins the aws-lc-rs crypto provider (it is a rustls
+# default today, declared here so a future default change cannot silently
+# drop the X25519MLKEM768 hybrid key exchange). The provider's default
+# group list offers the hybrid first; tls.rs regression tests lock in that
+# a PQ-capable client negotiates it.
+[dependencies]
+rustls = { version = "0.23", features = ["prefer-post-quantum"] }
+rustls-pemfile = "2.0"
+
+# Test-only crates, never linked into the shipped binary.
+# proptest drives property tests; sha2 is an independent, widely audited
+# SHA-256 used as an oracle to differentially check the hand-rolled
+# implementation in crypto.rs across arbitrary inputs.
+#
+# proptest is pulled without its default features: the `fork` and `timeout`
+# features run cases in child processes and threads, which the MIRI
+# interpreter cannot do. std-only runs every case in-process, which MIRI
+# handles and which changes no property-test behavior.
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+sha2 = "0.10"
+
+[profile.release]
+opt-level = "z"    # optimize for binary size
+lto = true         # link-time optimization
+panic = "abort"    # smaller binary, no unwinding overhead
+strip = true       # strip debug symbols from release binary

@@ -1,0 +1,98 @@
+/* Challenge page styles — the pre-session PoW gate.
+ *
+ * Served from /static/challenge.css. CSP (style-src 'self') forbids inline
+ * <style> blocks, so this file is the gate's only styling.
+ *
+ * Palette deliberately matches static/style.css (post-gate pages): #0d0d0d
+ * ground, #e8e8e8 ink, #00ff88 accent. Values are duplicated here rather
+ * than shared via @import so the gate makes exactly one stylesheet request
+ * before the WASM solve. Keep the two files' tokens in sync.
+ */
+
+body {
+    font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    background: #0d0d0d;
+    color: #e8e8e8;
+}
+
+.container {
+    text-align: center;
+    max-width: 400px;
+    padding: 2rem;
+}
+
+/* #challenge-data only carries server-issued data attributes; it must
+ * never be painted. Hidden here in CSS so the challenge HTML needs no
+ * inline style attribute (CSP style-src 'self' forbids those). */
+#challenge-data {
+    display: none;
+}
+
+/* "Verifying your browser..." with a terminal cursor while the WASM solve
+ * runs. The block cursor is a CSS animation, not an image. */
+.status {
+    font-size: 0.9rem;
+    color: #9c9c9c;
+    margin-top: 1rem;
+}
+
+.status::after {
+    content: "▊";
+    color: #00ff88;
+    margin-left: 0.4rem;
+    animation: cursor-blink 1s steps(1) infinite;
+}
+
+@keyframes cursor-blink {
+    50% { opacity: 0; }
+}
+
+.error {
+    color: #ff5f56;
+    display: none;
+}
+
+/* The one quiet paragraph under the status line. It is the only copy a
+   stranger reads before the gate opens, so it does the introducing. */
+.hint {
+    color: #666666;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    margin: 0.9rem auto 0;
+    max-width: 30rem;
+}
+
+/* The quiet disclosure pinned to the bottom of the gate. It answers "what
+ * does this server record" before the visitor spends a hash on the puzzle,
+ * so the text is dim and never blocks the centered puzzle. */
+.gate-footer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 1rem;
+    text-align: center;
+    font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+    font-size: 0.72rem;
+}
+
+.gate-footer a {
+    color: #666666;
+    border-bottom: 1px solid transparent;
+    text-decoration: none;
+}
+
+.gate-footer a:hover {
+    color: #9c9c9c;
+    border-bottom-color: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status::after {
+        animation: none;
+    }
+}

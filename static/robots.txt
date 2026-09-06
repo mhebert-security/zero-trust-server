@@ -1,0 +1,7 @@
+# Crawl rules for mhebert.dev. This file is served before the proof of work
+# gate, because a bot that could not read it would crawl nothing at all.
+# The two paths below sit behind the gate and hold no content worth indexing.
+User-agent: *
+Allow: /
+Disallow: /pow
+Disallow: /session

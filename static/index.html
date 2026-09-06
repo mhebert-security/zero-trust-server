@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matthew Hebert</title>
+    <meta name="description" content="Matthew Hebert. You solved a proof of work to read this page, served by a Rust HTTP/1.1 server written from the raw TCP socket up.">
+    <meta property="og:title" content="Matthew Hebert">
+    <meta property="og:description" content="Matthew Hebert. You solved a proof of work to read this page, served by a Rust HTTP/1.1 server written from the raw TCP socket up.">
+    <meta property="og:url" content="https://mhebert.dev/">
+    <!-- Favicon is self-hosted like every other byte on this site. Without a
+         real icon the browser falls back to /favicon.ico and 404s on every
+         load, polluting the audit log. -->
+    <link rel="icon" href="/static/favicon.ico">
+    <!-- External stylesheet: CSP style-src 'self' forbids inline <style>. -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="landing">
+    <!-- One screen, no scroll: the gate you just solved is the story. -->
+    <div class="landing-inner">
+        <p class="eyebrow">you solved a proof of work to read this</p>
+        <h1>Matthew Hebert</h1>
+        <p class="pitch">
+            The puzzle never asked who you are. It asked your browser to spend
+            a few seconds proving you are not a script, then let you in. That
+            is the whole point of the gate: proof without identity, no
+            tracking on the way out.
+        </p>
+        <p class="pitch">
+            This page rode in over an HTTP/1.1 server I wrote in Rust from the
+            raw TCP socket up. The standard library and rustls are the whole
+            dependency list. No framework, no database, no JavaScript once
+            the puzzle is done. Hand rolling a web server in 2026 is a strange
+            choice, and it is the choice this page makes.
+        </p>
+        <p class="pitch">
+            Software that carries your data should be small enough to trust.
+            Mine is. It is running right now, and it is open.
+        </p>
+        <nav class="nav" aria-label="Site">
+            <a href="/" aria-current="page">index</a>
+            <a href="/projects">projects</a>
+            <a href="/about">about</a>
+            <a href="/writing">writing</a>
+            <a href="/contact">contact</a>
+        </nav>
+    </div>
+
+    <footer class="landing-footer">
+        <a href="/transparency">what this server records</a>
+    </footer>
+</body>
+</html>

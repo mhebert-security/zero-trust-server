@@ -1,0 +1,5 @@
+target/
+node_modules/
+dev-cert/
+*.env
+session-secret.env
