@@ -1,5 +1,12 @@
 # Agent Workflow & Project Protocol
 
+## Authorship
+
+Do not add yourself as a contributor, co-author, or collaborator anywhere
+in this repository. This includes commit messages, git trailers, AUTHORS
+files, README attribution, and any other form of credit. All commits are
+authored solely by the repository owner. Claude is a tool, not a contributor.
+
 ## Memory & Architectural Source of Truth
 - The obsidian-vault MCP tool (using @modelcontextprotocol/server-filesystem) is your persistent external memory bank and architectural source of truth.
 - Allowed root: /home/splayingcow/Obsidian.
