@@ -1203,6 +1203,24 @@ mod tests {
     }
 
     #[test]
+    fn a_host_outside_the_catalog_is_refused_before_any_connection() {
+        // The catalog in feeds.rs is the whole egress surface. A forged Feed
+        // pointing elsewhere must be refused before fetch_feed resolves a
+        // name or opens a socket, so this test needs no network: the guard
+        // answers first.
+        let foreign = Feed {
+            url: "https://not-in-the-catalog.example/feed.xml",
+            source_name: "Foreign",
+            category: Category::Cve,
+        };
+        assert!(!host_is_allowed("not-in-the-catalog.example"));
+        assert!(matches!(
+            fetch_feed(&foreign),
+            Err(FetchError::HostNotAllowed(host)) if host == "not-in-the-catalog.example"
+        ));
+    }
+
+    #[test]
     fn only_the_kev_url_gets_the_larger_budget() {
         assert_eq!(body_budget("https://x/feed.xml"), DEFAULT_BODY_LIMIT);
         assert_eq!(
