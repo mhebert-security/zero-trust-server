@@ -3,6 +3,15 @@ name = "zero-trust-server"
 version = "0.1.0"
 edition = "2024"
 
+# The default build writes one TAB-delimited audit line per request on stdout
+# (see src/audit.rs). structured-telemetry additionally mirrors each line as a
+# single JSON object on stderr, with attribute names drawn from the
+# OpenTelemetry semantic conventions. It stays off by default: the JSON copy
+# is an opt-in feed for a telemetry pipeline, never the primary record.
+[features]
+default = []
+structured-telemetry = []
+
 # rustls is the single justified exception to standard-library-only.
 # Pure Rust TLS implementation, no OpenSSL, no C dependencies.
 # Everything else — HTTP parsing, routing, session management,

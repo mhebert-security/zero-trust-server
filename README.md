@@ -36,6 +36,12 @@ credential instead of a visitor session.
 - Structured TAB-delimited audit line for every request: timestamp, listener,
   peer, method, path, status, session presence, latency, proof-of-work solve
   time, and the request's count within its session
+- Optional `structured-telemetry` Cargo feature: when enabled, every audit
+  line is mirrored as a single JSON object on stderr, with attribute names
+  drawn from the OpenTelemetry semantic conventions (`http.request.method`,
+  `url.path`, `http.response.status_code`, `network.peer.*`). The stdout TAB
+  stream is unchanged; the JSON copy is an opt-in feed for a telemetry
+  pipeline. Field mapping is documented in the deployment runbook (§6)
 - Canary tokens: every 404 plants a fresh random marker in its HTML, records
   it on that request's audit line, and alerts (a separate `canary` journal
   line) if a later request ever echoes it back
