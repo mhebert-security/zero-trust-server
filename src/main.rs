@@ -17,6 +17,12 @@ mod http;
 mod router;
 mod redirect;
 mod semaphore;
+// The news store is not yet used by this binary (the fetcher owns the write
+// path and the /news route lands in a later task), so for now it is compiled
+// only under `cargo test`, where its unit tests run. Handlers/news.rs flips
+// this to an unconditional module declaration once it reads the store.
+#[cfg(test)]
+mod store;
 mod middleware {
     pub mod admin;
     pub mod headers;

@@ -12,10 +12,12 @@ edition = "2024"
 default = []
 structured-telemetry = []
 
-# rustls is the single justified exception to standard-library-only.
-# Pure Rust TLS implementation, no OpenSSL, no C dependencies.
-# Everything else — HTTP parsing, routing, session management,
-# PoW challenge logic, security headers — is written against std only.
+# The dependency list stays deliberately small. rustls remains the exception
+# for TLS: pure Rust, no OpenSSL, no C dependencies. rusqlite joins it for
+# the cyber-news store on the same grounds — an embedded relational store is
+# not tractable to hand-roll the way HTTP parsing, routing, session
+# management, PoW challenge logic, and security headers are, and SQLite runs
+# in-process with no server. Everything else is std only.
 #
 # prefer-post-quantum pins the aws-lc-rs crypto provider (it is a rustls
 # default today, declared here so a future default change cannot silently
@@ -23,6 +25,10 @@ structured-telemetry = []
 # group list offers the hybrid first; tls.rs regression tests lock in that
 # a PQ-capable client negotiates it.
 [dependencies]
+# bundled compiles the SQLite amalgamation at build time, so the binary
+# needs no system SQLite development package (matching the project's
+# self-contained builds on the NixOS host).
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23", features = ["prefer-post-quantum"] }
 rustls-pemfile = "2.0"
 
