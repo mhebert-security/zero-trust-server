@@ -9,8 +9,10 @@
 //! the path the operator configures (CYBER_NEWS_DB_PATH, else the production
 //! default), pulls the last 24 hours of items, and hands them to the renderer.
 //! The fetcher wrote those rows on its own six-hour timer; this process only
-//! ever reads them. A store that will not open, or a read that fails, answers
-//! 500 rather than a page full of nothing.
+//! ever reads them. The open is read-only for the same reason: the hardened
+//! unit runs with no write path to the store directory, and the store belongs
+//! to the fetcher's user. A store that will not open, or a read that fails,
+//! answers 500 rather than a page full of nothing.
 
 use crate::http::{Request, Response};
 use crate::{renderer, store};
@@ -30,7 +32,7 @@ pub fn page(_request: &Request) -> Response {
 /// Build the page from a specific store path, so tests can point at a temp
 /// database without touching the environment.
 fn render_from(path: &str) -> Response {
-    let conn = match store::init_db(path) {
+    let conn = match store::open_readonly(path) {
         Ok(conn) => conn,
         Err(_) => return internal_error(),
     };

@@ -15,7 +15,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OpenFlags};
 
 /// One news item as it is stored and read back.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,11 +51,12 @@ pub fn init_db(path: &str) -> rusqlite::Result<Connection> {
     // cannot take by waiting up to this long instead of failing instantly.
     conn.busy_timeout(Duration::from_secs(5))?;
 
-    // Prefer WAL so a reader never blocks the writer and vice versa. If the
-    // underlying filesystem rejects it the connection keeps the default
-    // journal and the busy timeout still arbitrates contention, so a WAL
-    // refusal is not worth failing the whole open over.
-    let _ = conn.pragma_update(None, "journal_mode", "WAL");
+    // Keep the default rollback journal rather than WAL. The server opens this
+    // store read-only from a hardened unit that cannot write the directory, and
+    // a WAL-mode store needs a writable -shm sidecar even for a read. Setting
+    // the mode explicitly also migrates a store a previous build left in WAL:
+    // the next fetcher pass converts it in place.
+    let _ = conn.pragma_update(None, "journal_mode", "DELETE");
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS items (
@@ -71,6 +72,25 @@ pub fn init_db(path: &str) -> rusqlite::Result<Connection> {
          CREATE INDEX IF NOT EXISTS idx_items_published
              ON items (published);",
     )?;
+
+    Ok(conn)
+}
+
+/// Open the store read-only. The /news server never writes: the fetcher owns
+/// every write on its six-hour timer, and the server unit runs under
+/// ProtectSystem=strict with no write path to the store the fetcher owns. A
+/// read-only connection is the whole contract between the two processes, and
+/// it lets the hardened server read a store it cannot modify.
+///
+/// Unlike `init_db`, this open does not create the file. The fetcher creates
+/// and migrates the schema before the first /news request can arrive, so a
+/// missing file here is a real error, not a first-run to absorb.
+pub fn open_readonly(path: &str) -> rusqlite::Result<Connection> {
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+
+    // Same busy timeout as init_db: if the fetcher happens to be mid-write
+    // when a reader arrives, wait out the lock instead of failing instantly.
+    conn.busy_timeout(Duration::from_secs(5))?;
 
     Ok(conn)
 }
@@ -200,6 +220,62 @@ mod tests {
             name.push(suffix);
             let _ = std::fs::remove_file(std::path::Path::new(&name));
         }
+    }
+
+    /// Create a store path that lives in its own writable subdirectory of the
+    /// temp dir. `temp_db` drops the file straight into the temp dir, which a
+    /// test that must revoke directory write access cannot use.
+    fn temp_dir_for(tag: &str) -> std::path::PathBuf {
+        let name = format!(
+            "cyber-news-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("System time before Unix epoch")
+                .as_nanos()
+        );
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).expect("create test dir");
+        dir
+    }
+
+    #[test]
+    fn open_readonly_reads_the_store_from_a_directory_it_cannot_write() {
+        // The production server opens this store read-only while its unit runs
+        // under ProtectSystem=strict: the store directory belongs to the
+        // fetcher's user and is not writable by the server. init_db leaves the
+        // store on the rollback journal (never WAL, whose -shm sidecar a
+        // read-only open would need to create), so a store the fetcher just
+        // wrote must open read-only with no write access to the directory at
+        // all. That is exactly the box.
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_dir_for("readonly-open");
+        let path = dir.join("news.db");
+        let conn = init_db(path.to_str().expect("utf-8 path")).expect("open");
+        insert_item(
+            &conn,
+            &item("Read-only item", "https://example.com/ro", current_unix_time()),
+        )
+        .expect("insert");
+        drop(conn);
+
+        // Drop the write bit on the directory for everyone, mirroring a
+        // ProtectSystem=strict mount the reader cannot write to.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555))
+            .expect("revoke dir write");
+        let outcome = (|| -> rusqlite::Result<Vec<NewsItem>> {
+            let conn = open_readonly(path.to_str().expect("utf-8 path"))?;
+            get_recent(&conn, 24)
+        })();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755))
+            .expect("restore dir write");
+
+        let items = outcome.expect("read-only open of a WAL store must succeed");
+        assert_eq!(items.len(), 1, "the row written before the revoke is readable");
+        assert_eq!(items[0].title, "Read-only item");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
