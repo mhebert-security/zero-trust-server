@@ -54,6 +54,23 @@
             </article>
 
             <article class="proj">
+                <p class="status">ongoing</p>
+                <h3><a href="/news">cyber-news-aggregator</a></h3>
+                <p class="tagline">The feed that knows what it is watching.</p>
+                <p>
+                    Ten cybersecurity sources fetched every six hours, stored in
+                    SQLite, and served behind the same proof of work gate as
+                    everything else on this server. Each item is tagged by ATT&amp;CK
+                    category so a CVE advisory and a breach report do not sit in
+                    the same pile. The fetcher runs as a hardened NixOS oneshot
+                    service. The route enforces session auth. Nothing in this
+                    stack is shared with the fetcher except a read-only view of
+                    the database.
+                </p>
+                <a class="repo" href="https://github.com/mhebert-security/news-aggregator">github.com/mhebert-security/news-aggregator</a>
+            </article>
+
+            <article class="proj">
                 <p class="status">planning</p>
                 <h3><a href="/projects/modbus-dnp3-traffic-analysis">modbus-dnp3-traffic-analysis</a></h3>
                 <p class="tagline">The write that can stop a line.</p>
