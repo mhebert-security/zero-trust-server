@@ -17,17 +17,18 @@ mod http;
 mod router;
 mod redirect;
 mod semaphore;
-// The news feature shares three modules with the standalone fetcher
+// The news feature shares modules with the standalone fetcher
 // (src/bin/cyber_news_fetcher.rs pulls store.rs, feeds.rs, and fetch.rs in
-// with #[path] includes). This server compiles the store, the catalog, and
-// the page renderer now, but only for their tests: nothing calls them until
-// the /news route lands (handlers/news.rs), which flips them to unconditional
-// modules and drops the cfg(test) guard.
-#[cfg(test)]
+// with #[path] includes). The /news route (handlers/news.rs) reads the store
+// and renders the catalog's categories, so store.rs, feeds.rs, and renderer.rs
+// are unconditional modules here. Each #[allow(dead_code)] silences only the
+// half that belongs to the other binary: the server never inserts or cleans
+// up rows (the fetcher's write path), and it never walks the source list, only
+// the category vocabulary the renderer maps to tabs and badges.
+#[allow(dead_code)] // insert_item and cleanup belong to the fetcher's write path.
 mod store;
-#[cfg(test)]
+#[allow(dead_code)] // Feed and FEEDS are the fetcher's source catalog.
 mod feeds;
-#[cfg(test)]
 mod renderer;
 mod middleware {
     pub mod admin;
@@ -39,6 +40,7 @@ mod handlers {
     pub mod admin;
     pub mod challenge;
     pub mod content;
+    pub mod news;
 }
 
 /// Maximum number of concurrent connections handled at once.

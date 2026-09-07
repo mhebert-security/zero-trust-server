@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use crate::handlers::{admin, challenge, content};
+use crate::handlers::{admin, challenge, content, news};
 use crate::http::{Method, Request, Response};
 use crate::middleware::{headers, session};
 
@@ -77,6 +77,11 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
         (true, "/projects") => content::projects(request),
         (true, "/writing") => content::writing(request),
         (true, "/contact") => content::contact(request),
+
+        // Cyber news — a gated page like the rest: the session gate above ran
+        // before dispatch, so a cookie-less visitor already saw the challenge.
+        // The handler opens the shared store and renders the last 24 hours.
+        (true, "/news") => news::page(request),
 
         // Project writeups — /projects/<slug>. The slug is looked up in the
         // store of Markdown pages loaded at startup (content::project), never
