@@ -118,7 +118,7 @@ pub const FEEDS: [Feed; 10] = [
         category: Category::Research,
     },
     Feed {
-        url: "https://www.schneier.com/feed/atom",
+        url: "https://www.schneier.com/feed/atom/",
         source_name: "Schneier on Security",
         category: Category::Research,
     },
