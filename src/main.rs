@@ -23,6 +23,12 @@ mod semaphore;
 // this to an unconditional module declaration once it reads the store.
 #[cfg(test)]
 mod store;
+// Same story as store.rs: the fetcher binary (src/bin/cyber_news_fetcher.rs,
+// the next task) is the only target that needs the feed catalog. Until it
+// exists this module is compiled under `cargo test` only so its unit tests
+// run; the fetcher claims it with a #[path] include and this line goes away.
+#[cfg(test)]
+mod feeds;
 mod middleware {
     pub mod admin;
     pub mod headers;
