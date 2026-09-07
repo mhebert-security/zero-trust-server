@@ -1,0 +1,18 @@
+# Runs the cyber news fetcher every six hours.
+#
+# The schedule sits at the top of each six-hour block (00, 06, 12, 18 local)
+# so the store is refreshed on a stable cadence and the /news page is never
+# older than six hours. Persistent=true catches a pass the machine slept
+# through: if the last scheduled run was missed, the timer fires once shortly
+# after boot instead of waiting for the next slot.
+
+[Unit]
+Description=Run the cyber news feed fetcher every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:00:00
+Persistent=true
+Unit=cyber-news-fetcher.service
+
+[Install]
+WantedBy=timers.target

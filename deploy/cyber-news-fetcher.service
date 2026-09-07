@@ -1,0 +1,51 @@
+# Cyber news feed fetcher.
+#
+# Type=oneshot and Restart=no are deliberate. The timer starts this unit, it
+# runs one full pass over the feed catalog, writes what is new to the SQLite
+# store, and exits. A feed that fails is logged and skipped inside the binary,
+# and the six-hour timer comes around again; systemd must not restart it, or a
+# machine-level failure would hammer the feeds on an endless retry loop.
+# StandardOutput=journal keeps every line where the operator already looks,
+# next to the server's audit stream.
+#
+# The fetcher connects outbound to the allowlisted feed hosts and writes
+# /var/lib/cyber-news/news.db, the store the /news route reads. It runs
+# unprivileged as the cyber-news user that install.sh creates, with no new
+# privileges and no home directory. The store directory is the only writable
+# path on the filesystem; everything else is read-only.
+#
+# The DB path needs no Environment line here: the binary falls back to the
+# production default when none is given, and this unit gives none.
+
+[Unit]
+Description=Cyber news feed fetcher
+Documentation=https://github.com/mhebert-security/zero-trust-server
+# The fetcher needs the network for its ten outbound HTTPS fetches. A timer
+# never starts this unit while a previous pass is still running, so two
+# fetchers cannot write the store at once.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cyber-news
+Group=cyber-news
+ExecStart=/usr/local/bin/cyber_news_fetcher
+Restart=no
+StandardOutput=journal
+StandardError=journal
+
+# Hardening. NoNewPrivileges and the namespace and kernel protections keep a
+# compromise of the fetcher from reaching the rest of the host. AF_UNIX stays
+# open for hostname resolution; the fetcher itself only ever opens AF_INET and
+# AF_INET6 sockets to the allowlisted feed hosts.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=yes
+ReadWritePaths=/var/lib/cyber-news
