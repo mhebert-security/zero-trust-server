@@ -73,12 +73,12 @@ pub struct Feed {
 /// walks this list in order, never follows a redirect, and connects only to
 /// the allowlisted host that the URL itself names (fetch.rs enforces that).
 pub const FEEDS: [Feed; 10] = [
-    // NVD's analyzer feed currently answers 404 upstream (checked
-    // 2026-09-07) — the entry stays because it is the required source list;
-    // at run time the fetcher logs the failure and moves on, as it does for
-    // any feed that will not answer.
+    // NVD retired its RSS exports; the 2.0 REST search API is the current
+    // public read path. It answers JSON, which fetch.rs reads with a narrow
+    // walker rather than the XML parser. Twenty results per pass keeps the
+    // response small and the list of CVEs current.
     Feed {
-        url: "https://nvd.nist.gov/feeds/xml/cve/misc/nvd-rss-analyzed.xml",
+        url: "https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=20",
         source_name: "NVD",
         category: Category::Cve,
     },

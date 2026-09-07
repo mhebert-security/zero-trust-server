@@ -10,12 +10,17 @@
 //! exceeds its budget aborts mid-read, never buffered whole first).
 //!
 //! The transport is deliberately thin. This module speaks just enough HTTP
-//! to fetch a feed: one GET, no redirects, no compression (the request asks
-//! for `identity` and a feed that answers with gzip anyway is treated as a
-//! failure, not silently inflated). Parsing is split by content: feeds.rs
-//! marks the CISA KEV catalog with a `.json` URL, everything else is RSS or
-//! Atom XML read with quick-xml. Dates arrive as RFC 2822, RFC 3339, or a
-//! bare YYYY-MM-DD and are normalized to Unix seconds here, in one place.
+//! to fetch a feed: one GET per feed, no redirects, no compression (the
+//! request asks for `identity` and a feed that answers with gzip anyway is
+//! treated as a failure, not silently inflated). The NVD 2.0 API is the one
+//! exception to the single GET: it orders by publish date ascending and
+//! rejects an ordering parameter, so the newest records sit at the end of
+//! the list and take a count request plus one more for the last page.
+//! Parsing is split by content: feeds.rs marks the two JSON feeds, the CISA
+//! KEV catalog and the NVD 2.0 API, by their URLs, and each is read with a
+//! narrow JSON walker. Every other feed is RSS or Atom XML read with
+//! quick-xml. Dates arrive as RFC 2822, RFC 3339, or a bare YYYY-MM-DD and
+//! are normalized to Unix seconds here, in one place.
 //!
 //! Nothing in this module panics and nothing prints. Every failure is a
 //! [`FetchError`] value; the fetcher binary decides what to log.
@@ -47,13 +52,21 @@ const DEFAULT_BODY_LIMIT: usize = 1024 * 1024;
 ///
 /// The general cap above cannot hold the KEV JSON: the catalog weighed
 /// roughly 1.7 MB when this was written, and it grows every time CISA adds
-/// an exploited vulnerability. Because that single source is mandated in
-/// feeds.rs and is one of only two CVE feeds (the other answers 404), a
-/// strict megabyte cap would starve the CVE tab entirely. This budget exists
-/// only for the one `.json` URL in the catalog; every other feed keeps the
-/// megabyte cap. It is a deviation from a flat one-megabyte cap, scoped as
-/// narrowly as the feeds.rs catalog will allow.
+/// an exploited vulnerability. It is the largest response in the catalog by
+/// an order of magnitude, so the megabyte cap would truncate every pass.
+/// This budget exists only for the KEV URL; the NVD API and every XML feed
+/// keep the megabyte cap. It is a deviation from a flat one-megabyte cap,
+/// scoped as narrowly as the feeds.rs catalog will allow.
 const KEV_BODY_LIMIT: usize = 8 * 1024 * 1024;
+
+/// Seconds of CVE history the NVD query covers, matching the store's
+/// retention: cleanup prunes items older than seven days. The pass returns
+/// the newest CVEs in the window, so the width only matters when a run was
+/// missed for days at a time; a narrow window would then leave a gap.
+const NVD_WINDOW_SECS: i64 = 7 * 24 * 60 * 60;
+
+/// How many CVEs one NVD pass keeps, the page size the catalog names too.
+const NVD_PAGE: i64 = 20;
 
 /// Declared to every feed server so the connection identifies itself.
 pub const USER_AGENT: &str = "mhebert-cyber-news/1.0";
@@ -89,7 +102,7 @@ pub enum FetchError {
     Protocol(String),
     /// The feed gzip-compressed a response that asked for identity.
     ContentEncoding(String),
-    /// The RSS/Atom or KEV body did not parse.
+    /// The feed body (XML or the narrow JSON catalogs) did not parse.
     Parse(String),
 }
 
@@ -139,14 +152,135 @@ impl From<io::Error> for FetchError {
 ///
 /// The transport, TLS verification, size budget, and parsing all happen
 /// here. A feed that fails at any stage returns the reason as a value; the
-/// caller logs it and keeps walking the catalog.
+/// caller logs it and keeps walking the catalog. The NVD API needs two GETs,
+/// so it is routed to [`fetch_nvd_feed`]; every other feed is a single GET.
 pub fn fetch_feed(feed: &Feed) -> Result<Vec<NewsItem>, FetchError> {
-    let (host, path) = parse_url(feed.url)?;
+    if is_nvd_api(feed.url) {
+        return fetch_nvd_feed(feed);
+    }
+    let body = get_body(feed.url)?;
+    if is_kev_catalog(feed.url) {
+        parse_kev_catalog(&body, feed)
+    } else {
+        parse_xml_feed(&body, feed)
+    }
+}
+
+/// Fetch the NVD 2.0 API and parse its newest CVEs.
+///
+/// NVD orders results by publish date, ascending, and rejects an ordering
+/// parameter, so the newest records sit at the end of the list, not the
+/// front. Two GETs find them: one asks for a single record to learn how many
+/// CVEs the trailing window holds, the second pages to the last page of that
+/// window. The window must roll with the clock, or every pass would ask for
+/// the same fixed week and the store would stop growing after the first run,
+/// so the dates are computed here rather than fixed in the catalog.
+fn fetch_nvd_feed(feed: &Feed) -> Result<Vec<NewsItem>, FetchError> {
+    let now = now_secs();
+    let endpoint = feed.url.split('?').next().unwrap_or(feed.url);
+    let window = nvd_window_query(now);
+
+    let count_url = format!("{endpoint}?resultsPerPage=1{window}");
+    let count_body = get_body(&count_url)?;
+    let total = nvd_total_results(&count_body)?;
+    if total == 0 {
+        return Ok(Vec::new());
+    }
+
+    let take = total.min(NVD_PAGE);
+    let page_url = format!(
+        "{endpoint}?resultsPerPage={take}{window}&startIndex={}",
+        total - take
+    );
+    let page_body = get_body(&page_url)?;
+    parse_nvd_api(&page_body, feed)
+}
+
+/// The rolling date window for one NVD request, as query parameters. NVD
+/// wants RFC 3339 timestamps with milliseconds and requires both ends.
+fn nvd_window_query(now: i64) -> String {
+    format!(
+        "&pubStartDate={}&pubEndDate={}",
+        format_utc_rfc3339(now - NVD_WINDOW_SECS),
+        format_utc_rfc3339(now)
+    )
+}
+
+/// The top-level `totalResults` count in an NVD response.
+fn nvd_total_results(document: &str) -> Result<i64, FetchError> {
+    let key = "\"totalResults\"";
+    let Some(start) = document.find(key) else {
+        return Err(FetchError::Parse("nvd: no totalResults".into()));
+    };
+    let mut i = start + key.len();
+    skip_space(document, &mut i);
+    if !document[i..].starts_with(':') {
+        return Err(FetchError::Parse("nvd: malformed totalResults".into()));
+    }
+    i += 1;
+    skip_space(document, &mut i);
+    let digits = document[i..]
+        .bytes()
+        .take_while(|b| b.is_ascii_digit())
+        .count();
+    if digits == 0 {
+        return Err(FetchError::Parse("nvd: malformed totalResults".into()));
+    }
+    document[i..i + digits]
+        .parse::<i64>()
+        .map_err(|_| FetchError::Parse("nvd: totalResults out of range".into()))
+}
+
+/// Format a Unix timestamp as an RFC 3339 UTC string with millisecond
+/// precision, the shape NVD's date parameters take.
+fn format_utc_rfc3339(secs: i64) -> String {
+    let days = secs.div_euclid(86_400);
+    let secs_of_day = secs.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let hour = secs_of_day / 3_600;
+    let minute = secs_of_day % 3_600 / 60;
+    let second = secs_of_day % 60;
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.000")
+}
+
+/// Civil date for a count of days since the Unix epoch.
+///
+/// The inverse of `days_from_civil`, integer only like the rest of this
+/// module's date math. Non-negative timestamps only; the fetcher never asks
+/// about times before 1970.
+fn civil_from_days(days_since_epoch: i64) -> (i64, i64, i64) {
+    let z = days_since_epoch + 719_468;
+    let era = z / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524
+        - day_of_era / 146_096)
+        / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = if month_prime < 10 {
+        month_prime + 3
+    } else {
+        month_prime - 9
+    };
+    let year = if month <= 2 { year + 1 } else { year };
+    (year, month, day)
+}
+
+/// One verified GET, returned as the response body text.
+///
+/// Everything a fetch shares: the allowlist check against the host the URL
+/// names, the TLS handshake that verifies it, the single GET, the status and
+/// content-encoding checks, and the read under the body budget. The caller
+/// decides how the body parses.
+fn get_body(url: &str) -> Result<String, FetchError> {
+    let (host, path) = parse_url(url)?;
     if !host_is_allowed(&host) {
         return Err(FetchError::HostNotAllowed(host));
     }
 
-    let budget = body_budget(feed.url);
+    let budget = body_budget(url);
     let socket = connect(&host)?;
     let mut tls = tls_client(&host, socket)?;
 
@@ -175,12 +309,7 @@ pub fn fetch_feed(feed: &Feed) -> Result<Vec<NewsItem>, FetchError> {
     }
 
     let body = read_body(&mut reader, &head.headers, budget)?;
-    let text = String::from_utf8_lossy(&body);
-    if is_json_catalog(feed.url) {
-        parse_kev_catalog(&text, feed)
-    } else {
-        parse_xml_feed(&text, feed)
-    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
 /// Split an https url into its (lowercased) host and its request path.
@@ -212,16 +341,21 @@ fn host_is_allowed(host: &str) -> bool {
 /// The read budget for a feed's response. Only the KEV JSON catalog is big
 /// enough to need the larger allowance; see `KEV_BODY_LIMIT`.
 fn body_budget(url: &str) -> usize {
-    if is_json_catalog(url) {
+    if is_kev_catalog(url) {
         KEV_BODY_LIMIT
     } else {
         DEFAULT_BODY_LIMIT
     }
 }
 
-/// Whether a url points at the KEV JSON catalog rather than an XML feed.
-fn is_json_catalog(url: &str) -> bool {
+/// Whether a url points at the CISA KEV JSON catalog.
+fn is_kev_catalog(url: &str) -> bool {
     url.ends_with("known_exploited_vulnerabilities.json")
+}
+
+/// Whether a url points at the NVD 2.0 REST search API.
+fn is_nvd_api(url: &str) -> bool {
+    url.starts_with("https://services.nvd.nist.gov/rest/json/cves/2.0")
 }
 
 /// Resolve the host and open a TCP connection with every timeout applied.
@@ -810,6 +944,244 @@ fn parse_kev_catalog(document: &str, feed: &Feed) -> Result<Vec<NewsItem>, Fetch
     Ok(items)
 }
 
+/// The piece of one NVD CVE record the aggregator keeps.
+struct NvdRecord {
+    id: String,
+    published: Option<String>,
+    description: String,
+}
+
+/// Parse the NVD 2.0 CVE search response into store-ready CVE items.
+///
+/// The response nests every CVE two levels down: a `vulnerabilities` array,
+/// then one object per CVE, then a `cve` object that carries the id, the
+/// descriptions array, and the publish time. This walker is as narrow as the
+/// KEV one above: it lifts those three fields and walks past everything else
+/// (references, weaknesses, metrics) without buffering it. The item title is
+/// the CVE id and the url is the NVD detail page, so the store keys each row
+/// on a stable value across runs.
+fn parse_nvd_api(document: &str, feed: &Feed) -> Result<Vec<NewsItem>, FetchError> {
+    let now = now_secs();
+    let mut items = Vec::new();
+
+    let key = "\"vulnerabilities\"";
+    let Some(start) = document.find(key) else {
+        return Err(FetchError::Parse("nvd: no vulnerabilities key".into()));
+    };
+    let mut i = start + key.len();
+    skip_space(document, &mut i);
+    if document[i..].starts_with(':') {
+        i += 1;
+    }
+    skip_space(document, &mut i);
+    if document[i..].starts_with('[') {
+        i += 1;
+    } else {
+        return Err(FetchError::Parse("nvd: no vulnerabilities array".into()));
+    }
+
+    loop {
+        skip_space(document, &mut i);
+        // A comma between elements, or trailing punctuation, is not a field.
+        if document[i..].starts_with(',') {
+            i += 1;
+            continue;
+        }
+        match document[i..].chars().next() {
+            Some(']') => break,
+            Some('{') => {
+                if let Some(record) = nvd_element(document, &mut i)? {
+                    items.push(nvd_news_item(&record, feed, now));
+                }
+            }
+            _ => return Err(FetchError::Parse("nvd: malformed response".into())),
+        }
+    }
+    Ok(items)
+}
+
+/// Build the stored item from one parsed NVD record.
+fn nvd_news_item(record: &NvdRecord, feed: &Feed, now: i64) -> NewsItem {
+    let published = record
+        .published
+        .as_deref()
+        .and_then(parse_date)
+        .unwrap_or(now);
+    news_item(
+        feed,
+        &record.id,
+        &format!("https://nvd.nist.gov/vuln/detail/{}", record.id),
+        &record.description,
+        published,
+        now,
+    )
+}
+
+/// Read one `vulnerabilities` element. The CVE record sits under a `cve`
+/// key, so that object is the only member descended into; the rest of the
+/// element (cveTags and anything new NVD adds) is skipped. An element with
+/// no `cve` object yields None.
+fn nvd_element(document: &str, i: &mut usize) -> Result<Option<NvdRecord>, FetchError> {
+    // The cursor sits on the element's opening brace.
+    *i += 1;
+    let mut record = None;
+    loop {
+        skip_space(document, i);
+        if document[*i..].starts_with(',') {
+            *i += 1;
+            continue;
+        }
+        if document[*i..].starts_with('}') {
+            *i += 1;
+            return Ok(record);
+        }
+        let key =
+            json_string(document, i).ok_or_else(|| FetchError::Parse("nvd: bad key".into()))?;
+        skip_space(document, i);
+        if !document[*i..].starts_with(':') {
+            return Err(FetchError::Parse("nvd: missing colon".into()));
+        }
+        *i += 1;
+        skip_space(document, i);
+        if key == "cve" && document[*i..].starts_with('{') {
+            record = Some(nvd_cve_object(document, i)?);
+        } else {
+            skip_any_json_value(document, i)?;
+        }
+    }
+}
+
+/// Read one `cve` object, lifting the id, the publish time, and the
+/// descriptions. Every other member (references, weaknesses, metrics) is
+/// walked past whole.
+fn nvd_cve_object(document: &str, i: &mut usize) -> Result<NvdRecord, FetchError> {
+    // The cursor sits on the cve object's opening brace.
+    *i += 1;
+    let mut id = None;
+    let mut published = None;
+    let mut descriptions: Vec<(String, String)> = Vec::new();
+    loop {
+        skip_space(document, i);
+        if document[*i..].starts_with(',') {
+            *i += 1;
+            continue;
+        }
+        if document[*i..].starts_with('}') {
+            *i += 1;
+            break;
+        }
+        let key =
+            json_string(document, i).ok_or_else(|| FetchError::Parse("nvd: bad key".into()))?;
+        skip_space(document, i);
+        if !document[*i..].starts_with(':') {
+            return Err(FetchError::Parse("nvd: missing colon".into()));
+        }
+        *i += 1;
+        skip_space(document, i);
+        match key.as_str() {
+            "id" => {
+                if let Some(value) = optional_string(document, i)? {
+                    id = Some(value);
+                }
+            }
+            "published" => {
+                if let Some(value) = optional_string(document, i)? {
+                    published = Some(value);
+                }
+            }
+            "descriptions" => {
+                if document[*i..].starts_with('[') {
+                    read_nvd_descriptions(document, i, &mut descriptions)?;
+                } else {
+                    skip_any_json_value(document, i)?;
+                }
+            }
+            _ => skip_any_json_value(document, i)?,
+        }
+    }
+    let id = id.ok_or_else(|| FetchError::Parse("nvd: cve has no id".into()))?;
+    let description = descriptions
+        .iter()
+        .find(|(lang, _)| lang == "en")
+        .or_else(|| descriptions.first())
+        .map(|(_, value)| value.clone())
+        .unwrap_or_default();
+    Ok(NvdRecord {
+        id,
+        published,
+        description,
+    })
+}
+
+/// Read the `descriptions` array into (lang, value) pairs. A description
+/// with no text is dropped.
+fn read_nvd_descriptions(
+    document: &str,
+    i: &mut usize,
+    out: &mut Vec<(String, String)>,
+) -> Result<(), FetchError> {
+    // The cursor sits on the array's opening bracket.
+    *i += 1;
+    loop {
+        skip_space(document, i);
+        if document[*i..].starts_with(',') {
+            *i += 1;
+            continue;
+        }
+        match document[*i..].chars().next() {
+            Some(']') => {
+                *i += 1;
+                return Ok(());
+            }
+            Some('{') => {
+                let fields = json_object_strings(document, i).map_err(|_| {
+                    FetchError::Parse("nvd: malformed description".into())
+                })?;
+                if let Some(value) = fields.get("value").filter(|text| !text.is_empty()) {
+                    let lang = fields.get("lang").cloned().unwrap_or_default();
+                    out.push((lang, value.clone()));
+                }
+            }
+            _ => return Err(FetchError::Parse("nvd: malformed descriptions".into())),
+        }
+    }
+}
+
+/// Read a member value that should be a string. A value that is not a string
+/// is skipped whole and None is returned, so an absent or mistyped field is
+/// not fatal.
+fn optional_string(document: &str, i: &mut usize) -> Result<Option<String>, FetchError> {
+    skip_space(document, i);
+    if document[*i..].starts_with('"') {
+        json_string(document, i)
+            .map(Some)
+            .ok_or_else(|| FetchError::Parse("nvd: unterminated string".into()))
+    } else {
+        skip_any_json_value(document, i)?;
+        Ok(None)
+    }
+}
+
+/// Skip one JSON value of any shape, quotes respected. Scalars are handled
+/// by skip_json_scalar, which also eats a trailing comma.
+fn skip_any_json_value(document: &str, i: &mut usize) -> Result<(), FetchError> {
+    skip_space(document, i);
+    match document[*i..].chars().next() {
+        Some('"') => {
+            if json_string(document, i).is_none() {
+                return Err(FetchError::Parse("nvd: unterminated string".into()));
+            }
+            Ok(())
+        }
+        Some('{') | Some('[') => skip_json_value(document, i),
+        Some(_) => {
+            skip_json_scalar(document, i);
+            Ok(())
+        }
+        None => Err(FetchError::Parse("nvd: truncated value".into())),
+    }
+}
+
 /// Skip JSON whitespace from the cursor onward.
 fn skip_space(document: &str, i: &mut usize) {
     while document[*i..].starts_with(|c: char| c.is_whitespace()) {
@@ -1355,6 +1727,115 @@ mod tests {
         assert_eq!(items[0].description, "Acme Widget has an RCE.");
         assert_eq!(items[0].category, "Cve");
         assert_eq!(items[1].description, "Mitigate per CISA.", "requiredAction fallback");
+    }
+
+    #[test]
+    fn nvd_api_response_parses_into_cve_items() {
+        let body = r#"{
+  "resultsPerPage": 20,
+  "startIndex": 0,
+  "totalResults": 340,
+  "format": "NVD_CVE",
+  "version": "2.0",
+  "timestamp": "2026-09-07T12:00:00.000",
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2026-7777",
+        "sourceIdentifier": "cve@mitre.org",
+        "published": "2026-09-07T08:00:00.000",
+        "lastModified": "2026-09-07T09:00:00.000",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          { "lang": "es", "value": "Primera descripcion." },
+          { "lang": "en", "value": "The widget parser lets a remote user run code." }
+        ],
+        "references": [{ "url": "https://example.com/advisory" }]
+      },
+      "cveTags": []
+    },
+    {
+      "cve": {
+        "id": "CVE-2026-7778",
+        "published": "2026-09-07T10:00:00.000",
+        "descriptions": [
+          { "lang": "es", "value": "Solo descripcion." }
+        ]
+      }
+    }
+  ]
+}"#;
+        let items = parse_nvd_api(body, &feed(Category::Cve)).expect("nvd api parses");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].title, "CVE-2026-7777", "the cve id is the title");
+        assert_eq!(items[0].url, "https://nvd.nist.gov/vuln/detail/CVE-2026-7777");
+        assert_eq!(
+            items[0].description,
+            "The widget parser lets a remote user run code.",
+            "the english description wins over the spanish one"
+        );
+        assert_eq!(items[0].category, "Cve");
+        assert_eq!(
+            items[0].published,
+            civil_seconds(2026, 9, 7, 8, 0, 0),
+            "published parses from rfc 3339 with fractional seconds"
+        );
+        assert_eq!(
+            items[1].description,
+            "Solo descripcion.",
+            "without english the first description is kept"
+        );
+    }
+
+    #[test]
+    fn json_feeds_route_by_url_and_only_kev_gets_the_large_budget() {
+        let kev =
+            "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
+        let nvd = "https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=20";
+        let xml = "https://www.schneier.com/feed/atom/";
+        assert!(is_kev_catalog(kev));
+        assert!(is_nvd_api(nvd));
+        assert!(!is_kev_catalog(nvd), "nvd keeps the default budget");
+        assert!(!is_nvd_api(xml));
+        assert_eq!(body_budget(kev), KEV_BODY_LIMIT);
+        assert_eq!(
+            body_budget(nvd),
+            DEFAULT_BODY_LIMIT,
+            "twenty records fit under the default cap"
+        );
+    }
+
+    #[test]
+    fn nvd_total_results_reads_the_count() {
+        let body = r#"{"resultsPerPage":1,"startIndex":0,"totalResults":2546,"format":"NVD_CVE","version":"2.0","vulnerabilities":[{"cve":{"id":"CVE-2026-0001"}}]}"#;
+        assert_eq!(nvd_total_results(body).unwrap(), 2546);
+        assert!(
+            nvd_total_results(r#"{"vulnerabilities":[]}"#).is_err(),
+            "a response with no totalResults fails"
+        );
+    }
+
+    #[test]
+    fn utc_rfc3339_formats_civil_time() {
+        assert_eq!(format_utc_rfc3339(0), "1970-01-01T00:00:00.000");
+        assert_eq!(
+            format_utc_rfc3339(civil_seconds(2026, 9, 7, 14, 30, 5)),
+            "2026-09-07T14:30:05.000"
+        );
+        assert_eq!(
+            format_utc_rfc3339(civil_seconds(2026, 2, 28, 23, 59, 59)),
+            "2026-02-28T23:59:59.000",
+            "leap year boundary stays aligned"
+        );
+    }
+
+    #[test]
+    fn nvd_window_query_spans_seven_days() {
+        let now = civil_seconds(2026, 9, 7, 12, 0, 0);
+        assert_eq!(
+            nvd_window_query(now),
+            "&pubStartDate=2026-08-31T12:00:00.000&pubEndDate=2026-09-07T12:00:00.000"
+        );
     }
 
     #[test]
