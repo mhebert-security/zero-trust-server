@@ -1,5 +1,11 @@
 use crate::http::{Request, Response};
 
+/// Marker the static contact page carries where the PGP fingerprint lands.
+/// `content::contact` replaces it at serve time with `pgp::fingerprint_display`,
+/// so the printed value always belongs to the key the /.well-known endpoints
+/// actually serve, and the repo never stores the fingerprint in two places.
+const FINGERPRINT_MARKER: &str = "{{FINGERPRINT}}";
+
 /// Serve the portfolio index page.
 /// Verified visitors only — session check happens in router.rs.
 pub fn index(_request: &Request) -> Response {
@@ -22,8 +28,13 @@ pub fn writing(_request: &Request) -> Response {
 }
 
 /// Serve the contact page.
+/// The PGP fingerprint block is inserted at serve time from the embedded key
+/// (see [`FINGERPRINT_MARKER`]), so the fingerprint a visitor reads always
+/// matches the key the /.well-known endpoints serve.
 pub fn contact(_request: &Request) -> Response {
-    html_response(include_str!("../../static/contact.html"))
+    let html = include_str!("../../static/contact.html")
+        .replace(FINGERPRINT_MARKER, &crate::pgp::fingerprint_display());
+    html_response(&html)
 }
 
 /// Serve a project writeup at /projects/<slug>.
@@ -36,8 +47,7 @@ pub fn project(path: &str) -> Response {
     let Some(slug) = path.strip_prefix("/projects/") else {
         return not_found();
     };
-    crate::writeup::get(slug)
-        .map_or_else(not_found, |page| html_response(&page.html))
+    crate::writeup::get(slug).map_or_else(not_found, |page| html_response(&page.html))
 }
 
 /// Serve /transparency — what this server records, and what it never does.
@@ -64,6 +74,73 @@ pub fn robots() -> Response {
 /// only the URL is /.well-known/security.txt.
 pub fn security_txt() -> Response {
     disk_asset("static/security.txt", "text/plain; charset=utf-8")
+}
+
+/// Serve the ASCII-armored `OpenPGP` public key at /.well-known/pgp. Public
+/// pre-gate like security.txt: a researcher who wants to encrypt a report
+/// fetches this key before solving anything. The body is the committed
+/// armor itself (pgp.rs embeds it), so the wire artifact is exactly what
+/// sits in the repo and stays reviewable.
+pub fn pgp_armored() -> Response {
+    Response {
+        status: 200,
+        reason: "OK",
+        headers: vec![
+            (
+                "Content-Type".to_string(),
+                "application/pgp-keys".to_string(),
+            ),
+            ("Cache-Control".to_string(), "no-cache".to_string()),
+        ],
+        body: crate::pgp::armored().as_bytes().to_vec(),
+    }
+}
+
+/// Serve the Web Key Directory policy file (direct method). The WKD spec
+/// requires this file at /.well-known/openpgpkey/policy for the directory
+/// to be valid; an empty body is explicitly sufficient.
+pub fn pgp_policy() -> Response {
+    Response {
+        status: 200,
+        reason: "OK",
+        headers: vec![
+            (
+                "Content-Type".to_string(),
+                "text/plain; charset=utf-8".to_string(),
+            ),
+            ("Cache-Control".to_string(), "no-cache".to_string()),
+        ],
+        body: Vec::new(),
+    }
+}
+
+/// Serve the binary `OpenPGP` key at a Web Key Directory leaf,
+/// /.well-known/openpgpkey/hu/<hash>. Only the leaf a WKD client computes
+/// for the site mailbox answers; any other hash names a mailbox this site
+/// does not hold and gets the standard 404. A query string carrying the
+/// local part (?l=...) is tolerated. The spec wants binary on the wire,
+/// with application/octet-stream.
+pub fn pgp_wkd(path: &str) -> Response {
+    let Some(rest) = path.strip_prefix(crate::pgp::WKD_PREFIX) else {
+        return not_found();
+    };
+    let leaf = rest.split(['?', '/']).next().unwrap_or("");
+    if leaf == crate::pgp::wkd_leaf() {
+        Response {
+            status: 200,
+            reason: "OK",
+            headers: vec![
+                (
+                    "Content-Type".to_string(),
+                    "application/octet-stream".to_string(),
+                ),
+                ("Cache-Control".to_string(), "no-cache".to_string()),
+            ],
+            body: crate::pgp::binary().to_vec(),
+        }
+    } else {
+        not_found()
+    }
 }
 
 /// Read a plain-text file from disk and serve it. Missing file becomes the
@@ -103,13 +180,13 @@ pub fn static_asset(path: &str) -> Response {
     // Determine Content-Type from file extension.
     let content_type = match filename.rsplit_once('.') {
         Some((_, "html")) => "text/html; charset=utf-8",
-        Some((_, "css"))  => "text/css",
-        Some((_, "js"))   => "application/javascript",
+        Some((_, "css")) => "text/css",
+        Some((_, "js")) => "application/javascript",
         Some((_, "wasm")) => "application/wasm",
-        Some((_, "ico"))  => "image/x-icon",
-        Some((_, "png"))  => "image/png",
-        Some((_, "svg"))  => "image/svg+xml",
-        _                 => "application/octet-stream",
+        Some((_, "ico")) => "image/x-icon",
+        Some((_, "png")) => "image/png",
+        Some((_, "svg")) => "image/svg+xml",
+        _ => "application/octet-stream",
     };
 
     // Read the file from the static directory.
@@ -126,8 +203,10 @@ pub fn static_asset(path: &str) -> Response {
                 // Static assets are cached aggressively.
                 // → Open question: add content-hashed filenames
                 //   for cache busting. See content.md.
-                ("Cache-Control".to_string(),
-                 "public, max-age=3600".to_string()),
+                (
+                    "Cache-Control".to_string(),
+                    "public, max-age=3600".to_string(),
+                ),
             ],
             body: bytes,
         },
@@ -186,7 +265,11 @@ mod tests {
     #[test]
     fn literal_parent_dotdot_is_rejected_before_fs() {
         assert_eq!(static_asset("/static/../etc/passwd").status, 404);
-        assert_eq!(static_asset("/static/..%2fsecret").status, 404, "contains '..'");
+        assert_eq!(
+            static_asset("/static/..%2fsecret").status,
+            404,
+            "contains '..'"
+        );
         assert_eq!(static_asset("/static/%2e./x").status, 404);
     }
 
@@ -196,7 +279,11 @@ mod tests {
         // does not exist; any real separator that would change directory is
         // rejected outright. Either way: 404, never fs::read of a parent.
         assert_eq!(static_asset("/static/%2e%2e%2fetc%2fpasswd").status, 404);
-        assert_eq!(static_asset("/static/%2e%2e/x").status, 404, "real '/' rejected");
+        assert_eq!(
+            static_asset("/static/%2e%2e/x").status,
+            404,
+            "real '/' rejected"
+        );
         assert_eq!(static_asset("/static/%2e%2e").status, 404);
     }
 
@@ -271,7 +358,10 @@ mod tests {
         let body = String::from_utf8(response.body).expect("html is utf-8");
         assert!(body.contains(r#"<link rel="icon" href="/static/favicon.ico">"#));
         assert!(body.contains("<h1 class=\"page-title\">sample</h1>"));
-        assert!(body.contains("<h2>A section</h2>"), "markdown body is rendered");
+        assert!(
+            body.contains("<h2>A section</h2>"),
+            "markdown body is rendered"
+        );
         assert!(body.contains("served by <code>zero-trust-server</code>"));
     }
 
@@ -288,9 +378,15 @@ mod tests {
         assert_ne!(token_a, token_b, "each 404 mints a fresh canary");
         assert_eq!(token_a.len(), 32);
         let body = String::from_utf8(first.body).expect("404 body is utf-8");
-        assert!(body.contains(&format!("data-c=\"{token_a}\"")), "token on the span");
+        assert!(
+            body.contains(&format!("data-c=\"{token_a}\"")),
+            "token on the span"
+        );
         assert!(body.contains("<span"), "token rides an explicit span");
-        assert!(body.contains(" hidden"), "span is invisible without inline style");
+        assert!(
+            body.contains(" hidden"),
+            "span is invisible without inline style"
+        );
     }
 
     #[test]
@@ -307,5 +403,78 @@ mod tests {
         ] {
             assert_eq!(project(path).status, 404, "{path} must miss");
         }
+    }
+
+    #[test]
+    fn contact_page_prints_the_fingerprint_of_the_served_key() {
+        // The fingerprint block on the rendered contact page must name the
+        // same key the WKD and /.well-known/pgp endpoints serve. A visitor
+        // who verifies the printed value against a key fetched from WKD
+        // would otherwise see the two disagree.
+        let request = Request {
+            method: crate::http::Method::Get,
+            path: String::new(),
+            headers: std::collections::HashMap::new(),
+            body: Vec::new(),
+        };
+        let body = String::from_utf8(contact(&request).body).expect("html is utf-8");
+        assert!(
+            body.contains(&crate::pgp::fingerprint_display()),
+            "the rendered page must carry the fingerprint of the embedded key"
+        );
+        assert!(
+            !body.contains("{{FINGERPRINT}}"),
+            "the marker is always replaced before serving"
+        );
+    }
+
+    #[test]
+    fn pgp_armored_and_policy_serve_static_machine_readable_bodies() {
+        let key = pgp_armored();
+        assert_eq!(key.status, 200);
+        assert!(
+            key.headers
+                .iter()
+                .any(|(n, v)| n == "Content-Type" && v == "application/pgp-keys")
+        );
+        let body = String::from_utf8(key.body).expect("armor is ascii");
+        assert!(
+            body.starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----"),
+            "the armored key is served verbatim"
+        );
+
+        let policy = pgp_policy();
+        assert_eq!(policy.status, 200);
+        assert!(
+            policy.body.is_empty(),
+            "an empty WKD policy file is spec-legal"
+        );
+    }
+
+    #[test]
+    fn wkd_leaf_is_served_binary_and_unknown_leafs_miss() {
+        let leaf = crate::pgp::wkd_leaf();
+        let hit = pgp_wkd(&format!("/.well-known/openpgpkey/hu/{leaf}"));
+        assert_eq!(hit.status, 200);
+        assert!(
+            hit.headers
+                .iter()
+                .any(|(n, v)| n == "Content-Type" && v == "application/octet-stream")
+        );
+        assert_eq!(
+            hit.body,
+            crate::pgp::binary(),
+            "the wire bytes are the binary key"
+        );
+
+        // A query string carrying the local part must not break the match.
+        let queried = pgp_wkd(&format!("/.well-known/openpgpkey/hu/{leaf}?l=admin"));
+        assert_eq!(queried.status, 200);
+
+        // Any other hash names a mailbox the site does not hold.
+        assert_eq!(
+            pgp_wkd("/.well-known/openpgpkey/hu/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz").status,
+            404
+        );
     }
 }

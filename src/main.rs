@@ -10,6 +10,7 @@ mod canary;
 mod crypto;
 mod markdown;
 mod metrics;
+mod pgp;
 mod tls;
 mod writeup;
 mod http;

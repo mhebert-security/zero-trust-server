@@ -1,8 +1,8 @@
 use std::net::IpAddr;
 
+use crate::handlers::{admin, challenge, content};
 use crate::http::{Method, Request, Response};
 use crate::middleware::{headers, session};
-use crate::handlers::{admin, challenge, content};
 
 /// Outcome of routing: the response to send, plus the session gate's ruling.
 ///
@@ -31,114 +31,15 @@ pub struct Routed {
 /// 3. Handler dispatch (method + path matching)
 /// 4. Security header injection (every response)
 pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
-    // Step 0 — Public endpoints reachable WITHOUT a session.
-    // These sit before the gate for one shared reason: each is a surface a
-    // cookie-less visitor must reach. The static assets the challenge page
-    // needs (CSS/JS/WASM) and the PoW submission endpoint let an unverified
-    // visitor complete the puzzle and RECEIVE a session cookie; /health must
-    // answer 200 to a cookie-less uptime monitor; /robots.txt and
-    // /.well-known/security.txt are the public crawler and researcher doors;
-    // /transparency explains the journal to someone who has not solved
-    // anything yet; and /admin plus /admin/login carry their own credential
-    // (a cookie signed with ZTS_ADMIN_SECRET) that must not be re-gated by
-    // the visitor puzzle. If any of these sat behind the session gate below,
-    // the challenge could never complete (assets come back as challenge HTML,
-    // the verify POST never reaches pow::verify), a monitor would false-alarm
-    // on every check, and the operator would be locked out the moment they
-    // cleared their cookies.
-    //
-    // HEAD routes as GET on the public endpoints too, so a monitor or link
-    // checker that probes /health or an asset with HEAD sees the same result
-    // a GET would (the serializer drops the body at the wire).
-
-    // Static assets — the challenge page fetches these before a session
-    // exists.
-    if is_get(&request.method) && request.path.starts_with("/static/") {
+    // Step 0 — Public endpoints reachable WITHOUT a session. Each sits before
+    // the gate for one shared reason: it is a surface a cookie-less visitor
+    // must reach. If any of them ran behind the gate, the challenge could
+    // never complete, an uptime monitor would false-alarm on every check, and
+    // the operator would be locked out the moment they cleared their cookies.
+    // public_route names them in order, with the reason per route.
+    if let Some(response) = public_route(request, peer) {
         return Routed {
-            response: headers::inject(content::static_asset(&request.path)),
-            session: None,
-        };
-    }
-
-    // PoW solution submission — the only way an unverified visitor obtains a
-    // session. On success pow::verify returns 302 + Set-Cookie; the client
-    // address feeds its per-IP rate budget.
-    if request.method == Method::Post && request.path == "/pow/verify" {
-        return Routed {
-            response: headers::inject(crate::middleware::pow::verify(request, peer)),
-            session: None,
-        };
-    }
-
-    // /health — minimal liveness probe for external uptime monitors (item:
-    // public health endpoint). Pre-session, GET-only, static body: a 200 here
-    // proves the full path (TLS, parse, routing, headers) is alive without
-    // leaking anything. No cookie required.
-    if is_get(&request.method) && request.path == "/health" {
-        return Routed {
-            response: headers::inject(Response {
-                status: 200,
-                reason: "OK",
-                headers: vec![(
-                    "Content-Type".to_string(),
-                    "text/plain; charset=utf-8".to_string(),
-                )],
-                body: b"ok".to_vec(),
-            }),
-            session: None,
-        };
-    }
-
-    // /robots.txt — crawl rules. A crawler that had to solve the puzzle to
-    // read them would never crawl anything, so the file sits before the gate.
-    if is_get(&request.method) && request.path == "/robots.txt" {
-        return Routed {
-            response: headers::inject(content::robots()),
-            session: None,
-        };
-    }
-
-    // /.well-known/security.txt (RFC 9116) — the address a researcher uses
-    // to report a flaw. Hiding it behind the gate hides the way in.
-    if is_get(&request.method) && request.path == "/.well-known/security.txt" {
-        return Routed {
-            response: headers::inject(content::security_txt()),
-            session: None,
-        };
-    }
-
-    // /transparency — what this server records, and what it never does. It
-    // is the journal explaining itself to the visitor who has not solved
-    // anything yet, so the gate must not stand between it and them.
-    if is_get(&request.method) && request.path == "/transparency" {
-        return Routed {
-            response: headers::inject(content::transparency()),
-            session: None,
-        };
-    }
-
-    // /admin/login and /admin — the operator dashboard. Both live pre-gate:
-    // the admin session is its own credential. GET /admin/login shows the
-    // password form (or bounces a request that already carries a valid admin
-    // cookie to the dashboard); POST /admin/login checks the password and
-    // mints the zts-admin cookie; GET /admin renders the metrics (or bounces
-    // a cookie-less request to the login form). All three answer with the
-    // standard header set, exactly like every other route.
-    if is_get(&request.method) && request.path == "/admin/login" {
-        return Routed {
-            response: headers::inject(admin::login_form(request)),
-            session: None,
-        };
-    }
-    if request.method == Method::Post && request.path == "/admin/login" {
-        return Routed {
-            response: headers::inject(admin::login(request, peer)),
-            session: None,
-        };
-    }
-    if is_get(&request.method) && request.path == "/admin" {
-        return Routed {
-            response: headers::inject(admin::dashboard(request)),
+            response: headers::inject(response),
             session: None,
         };
     }
@@ -183,9 +84,7 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
         // trailing slash all fall through to the shared 404 below. The exact
         // "/projects" arm above wins, so the index and a writeup never
         // collide.
-        (true, path) if path.starts_with("/projects/") => {
-            content::project(path)
-        }
+        (true, path) if path.starts_with("/projects/") => content::project(path),
 
         // Catch-all — 404 for anything not explicitly listed. Shared with the
         // static-asset miss handler so both answer in the same human voice.
@@ -200,6 +99,105 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
         response: headers::inject(response),
         session: Some(true),
     }
+}
+
+/// Match a request against the public pre-gate routes, in a fixed order.
+/// Returns the response for the first route the request names, or None when
+/// no public route claims it and the request must pass the session gate.
+///
+/// The static assets the challenge page needs (CSS/JS/WASM) and the `PoW`
+/// submission endpoint let an unverified visitor complete the puzzle and
+/// receive a session cookie; /health answers 200 to a cookie-less uptime
+/// monitor; /robots.txt and /.well-known/security.txt are the public crawler
+/// and researcher doors; /transparency explains the journal to someone who
+/// has not solved anything yet; and /admin plus /admin/login carry their own
+/// credential (a cookie signed with `ZTS_ADMIN_SECRET`) that must not be
+/// re-gated by the visitor puzzle.
+///
+/// HEAD routes as GET on every endpoint here, so a monitor or link checker
+/// that probes with HEAD sees the same result a GET would (the serializer
+/// drops the body at the wire). The caller injects the security header set
+/// onto whatever this returns, exactly as it does for gated responses.
+fn public_route(request: &Request, peer: Option<IpAddr>) -> Option<Response> {
+    // Static assets — the challenge page fetches these before a session
+    // exists.
+    if is_get(&request.method) && request.path.starts_with("/static/") {
+        return Some(content::static_asset(&request.path));
+    }
+
+    // PoW solution submission — the only way an unverified visitor obtains a
+    // session. On success pow::verify returns 302 + Set-Cookie; the client
+    // address feeds its per-IP rate budget.
+    if request.method == Method::Post && request.path == "/pow/verify" {
+        return Some(crate::middleware::pow::verify(request, peer));
+    }
+
+    // /health — minimal liveness probe for external uptime monitors. A 200
+    // here proves the full path (TLS, parse, routing, headers) is alive
+    // without leaking anything. No cookie required.
+    if is_get(&request.method) && request.path == "/health" {
+        return Some(Response {
+            status: 200,
+            reason: "OK",
+            headers: vec![(
+                "Content-Type".to_string(),
+                "text/plain; charset=utf-8".to_string(),
+            )],
+            body: b"ok".to_vec(),
+        });
+    }
+
+    // /robots.txt — crawl rules. A crawler that had to solve the puzzle to
+    // read them would never crawl anything, so the file sits before the gate.
+    if is_get(&request.method) && request.path == "/robots.txt" {
+        return Some(content::robots());
+    }
+
+    // /.well-known/security.txt (RFC 9116) — the address a researcher uses
+    // to report a flaw. Hiding it behind the gate hides the way in.
+    if is_get(&request.method) && request.path == "/.well-known/security.txt" {
+        return Some(content::security_txt());
+    }
+
+    // The OpenPGP key disclosure (pgp.rs): the armored key at
+    // /.well-known/pgp, the WKD policy file, and the WKD leaf URL a client
+    // computes from the site mailbox. All three sit pre-gate for the same
+    // reason as security.txt, so a researcher who wants to encrypt a report
+    // reaches the key before solving the visitor puzzle.
+    if is_get(&request.method) && request.path == "/.well-known/pgp" {
+        return Some(content::pgp_armored());
+    }
+    if is_get(&request.method) && request.path == "/.well-known/openpgpkey/policy" {
+        return Some(content::pgp_policy());
+    }
+    if is_get(&request.method) && request.path.starts_with(crate::pgp::WKD_PREFIX) {
+        return Some(content::pgp_wkd(&request.path));
+    }
+
+    // /transparency — what this server records, and what it never does. It
+    // is the journal explaining itself to the visitor who has not solved
+    // anything yet, so the gate must not stand between it and them.
+    if is_get(&request.method) && request.path == "/transparency" {
+        return Some(content::transparency());
+    }
+
+    // /admin/login and /admin — the operator dashboard. Both live pre-gate:
+    // the admin session is its own credential. GET /admin/login shows the
+    // password form (or bounces a request that already carries a valid admin
+    // cookie to the dashboard); POST /admin/login checks the password and
+    // mints the zts-admin cookie; GET /admin renders the metrics (or bounces
+    // a cookie-less request to the login form).
+    if is_get(&request.method) && request.path == "/admin/login" {
+        return Some(admin::login_form(request));
+    }
+    if request.method == Method::Post && request.path == "/admin/login" {
+        return Some(admin::login(request, peer));
+    }
+    if is_get(&request.method) && request.path == "/admin" {
+        return Some(admin::dashboard(request));
+    }
+
+    None
 }
 
 /// A handler-servable read method: GET, or HEAD (which routes as GET).
@@ -258,17 +256,20 @@ mod tests {
     #[test]
     fn robots_and_security_serve_plain_text() {
         let robots = handle(&request(Method::Get, "/robots.txt"), None);
-        assert!(robots
-            .response
-            .headers
-            .iter()
-            .any(|(n, v)| n == "Content-Type" && v == "text/plain; charset=utf-8"));
+        assert!(
+            robots
+                .response
+                .headers
+                .iter()
+                .any(|(n, v)| n == "Content-Type" && v == "text/plain; charset=utf-8")
+        );
         let sec = handle(&request(Method::Get, "/.well-known/security.txt"), None);
-        assert!(sec
-            .response
-            .headers
-            .iter()
-            .any(|(n, v)| n == "Content-Type" && v == "text/plain; charset=utf-8"));
+        assert!(
+            sec.response
+                .headers
+                .iter()
+                .any(|(n, v)| n == "Content-Type" && v == "text/plain; charset=utf-8")
+        );
     }
 
     #[test]
@@ -281,8 +282,10 @@ mod tests {
         assert_eq!(routed.session, None, "/transparency is a public route");
         assert!(has_header(resp, "Content-Security-Policy"));
         let body = String::from_utf8(resp.body.clone()).expect("html is utf-8");
-        assert!(body.contains("what this server records"),
-                "the page states its subject plainly");
+        assert!(
+            body.contains("what this server records"),
+            "the page states its subject plainly"
+        );
     }
 
     #[test]
@@ -294,7 +297,10 @@ mod tests {
         assert_eq!(login.session, None, "/admin/login is not PoW gated");
         assert_eq!(login.response.status, 200, "the login form serves pre-gate");
         let login_body = String::from_utf8(login.response.body).expect("utf-8");
-        assert!(login_body.contains("password"), "the form asks for the password");
+        assert!(
+            login_body.contains("password"),
+            "the form asks for the password"
+        );
 
         // GET /admin with no admin cookie redirects to the login form, which
         // is dashboard gating, not the visitor puzzle.
@@ -329,10 +335,14 @@ mod tests {
         let routed = handle(&req, None);
         assert_eq!(routed.response.status, 404);
         let body = String::from_utf8(routed.response.body).expect("utf-8");
-        assert!(body.contains("Nothing lives at that address"),
-                "the 404 body must be a human sentence");
-        assert!(!body.contains("404 Not Found"),
-                "the bare status text must not leak into the body");
+        assert!(
+            body.contains("Nothing lives at that address"),
+            "the 404 body must be a human sentence"
+        );
+        assert!(
+            !body.contains("404 Not Found"),
+            "the bare status text must not leak into the body"
+        );
     }
 
     #[test]
@@ -432,7 +442,10 @@ mod tests {
         assert!(has_header(resp, "Content-Security-Policy"));
         let body = String::from_utf8(resp.body.clone()).expect("utf-8");
         assert!(body.contains("<h1 class=\"page-title\">sample</h1>"));
-        assert!(body.contains("<h2>A section</h2>"), "markdown renders through routing");
+        assert!(
+            body.contains("<h2>A section</h2>"),
+            "markdown renders through routing"
+        );
         assert!(body.contains(r#"<link rel="icon" href="/static/favicon.ico">"#));
     }
 
@@ -457,8 +470,10 @@ mod tests {
         assert_eq!(resp.status, 404);
         assert_eq!(routed.session, Some(true));
         let body = String::from_utf8(resp.body.clone()).expect("utf-8");
-        assert!(body.contains("Nothing lives at that address"),
-                "a writeup miss answers in the same voice as the catch-all");
+        assert!(
+            body.contains("Nothing lives at that address"),
+            "a writeup miss answers in the same voice as the catch-all"
+        );
     }
 
     #[test]
@@ -467,5 +482,65 @@ mod tests {
         // The challenge answers and the audit context records the gate no.
         let routed = handle(&request(Method::Get, "/projects/sample"), None);
         assert_eq!(routed.session, Some(false));
+    }
+
+    #[test]
+    fn pgp_disclosure_is_public_and_serves_the_correct_bodies() {
+        // The armored key, the WKD policy file, and the WKD leaf for the
+        // site mailbox answer a cookie-less GET with full security headers.
+        // The key is disclosure, and it stands with security.txt before the
+        // gate.
+        let armored = handle(&request(Method::Get, "/.well-known/pgp"), None);
+        assert_eq!(armored.response.status, 200);
+        assert_eq!(armored.session, None, "the key is a public pre-gate route");
+        assert!(has_header(&armored.response, "Content-Security-Policy"));
+        assert!(
+            String::from_utf8(armored.response.body)
+                .expect("armor is ascii")
+                .contains("-----BEGIN PGP PUBLIC KEY BLOCK-----")
+        );
+
+        let policy = handle(
+            &request(Method::Get, "/.well-known/openpgpkey/policy"),
+            None,
+        );
+        assert_eq!(policy.response.status, 200);
+        assert_eq!(policy.session, None);
+        assert!(policy.response.body.is_empty());
+
+        let leaf = crate::pgp::wkd_leaf();
+        let wkd = handle(
+            &request(Method::Get, &format!("/.well-known/openpgpkey/hu/{leaf}")),
+            None,
+        );
+        assert_eq!(wkd.response.status, 200);
+        assert_eq!(wkd.session, None);
+        assert_eq!(wkd.response.body, crate::pgp::binary());
+        assert!(
+            wkd.response
+                .headers
+                .iter()
+                .any(|(n, v)| n == "Content-Type" && v == "application/octet-stream")
+        );
+
+        // A query string carrying the local part is tolerated; an unknown
+        // hash is a miss for a mailbox this site does not hold.
+        let queried = handle(
+            &request(
+                Method::Get,
+                &format!("/.well-known/openpgpkey/hu/{leaf}?l=admin"),
+            ),
+            None,
+        );
+        assert_eq!(queried.response.status, 200);
+        let miss = handle(
+            &request(
+                Method::Get,
+                "/.well-known/openpgpkey/hu/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+            ),
+            None,
+        );
+        assert_eq!(miss.response.status, 404);
+        assert_eq!(miss.session, None, "the miss is still a pre-gate 404");
     }
 }

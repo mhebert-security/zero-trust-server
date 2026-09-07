@@ -10,10 +10,11 @@ Every request to the site passes a proof-of-work gate before one byte of
 content is served: the server issues a SHA-256 challenge, the visitor's
 browser solves it (compiled to WASM), and only then is a signed session cookie
 issued. Public pre-gate endpoints are the challenge assets, `/pow/verify`,
-`/health`, `/robots.txt`, `/.well-known/security.txt`, `/transparency` (what
-the server records), and the operator dashboard at `/admin` and
-`/admin/login`, which carry their own credential instead of a visitor
-session.
+`/health`, `/robots.txt`, `/.well-known/security.txt`, the OpenPGP key
+endpoints (`/.well-known/pgp` and the Web Key Directory at
+`/.well-known/openpgpkey/`), `/transparency` (what the server records), and
+the operator dashboard at `/admin` and `/admin/login`, which carry their own
+credential instead of a visitor session.
 
 - HTTP/1.1 parsed and served from raw TCP sockets — parser, router, headers,
   and concurrency all hand-rolled (`src/http.rs`, `src/router.rs`)
@@ -38,6 +39,13 @@ session.
 - Canary tokens: every 404 plants a fresh random marker in its HTML, records
   it on that request's audit line, and alerts (a separate `canary` journal
   line) if a later request ever echoes it back
+- OpenPGP key disclosure: one public key is committed in ASCII armor at
+  `static/openpgp/admin.pub.asc` and served three ways that cannot drift
+  apart. The Web Key Directory serves the binary key to mail clients and
+  `gpg --locate-keys admin@mhebert.dev` at the direct-method leaf
+  `/.well-known/openpgpkey/hu/<hash>`; the armored copy sits at
+  `/.well-known/pgp`; and the `/contact` page prints the matching
+  fingerprint, derived from the same key at serve time
 
 No `unsafe` anywhere in the server code.
 
@@ -58,7 +66,9 @@ src/
   metrics.rs      in-process dashboard counters
   audit.rs        structured request log
   canary.rs       404 canary markers + replay detection
+  pgp.rs          OpenPGP disclosure: de-armor, WKD leaf, fingerprint
 static/           post-gate pages + challenge assets (embedded at build time)
+static/openpgp/   the armored public key (embedded; see pgp.rs)
 scripts/          Playwright capture tooling, WASM solve-time harness
 ```
 

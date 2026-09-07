@@ -33,6 +33,21 @@
             Write about a flaw you found, a fix you would make, or a question
             the code raised. The answer comes from me, not from a form.
         </p>
+
+        <h2 class="rule">pgp</h2>
+        <p class="muted">
+            A report about a flaw can be encrypted. The mailbox above resolves to
+            the public key whose fingerprint is printed here:
+        </p>
+        <!-- The fingerprint is inserted at serve time from the embedded key
+             (content.rs reads pgp::fingerprint_display), so this page and the
+             /.well-known endpoints always show the same key. -->
+        <p class="fingerprint"><code>{{FINGERPRINT}}</code></p>
+        <p class="muted">
+            <code>gpg --locate-keys admin@mhebert.dev</code> fetches it over the Web Key
+            Directory. The same key in ASCII armor sits at
+            <a href="/.well-known/pgp">/.well-known/pgp</a>.
+        </p>
     </main>
 
     <footer class="page-footer">

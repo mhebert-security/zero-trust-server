@@ -428,6 +428,17 @@ h2.rule::after {
     font-size: 1.25rem;
 }
 
+/* The PGP fingerprint on the contact page. A 40-hex-digit string with
+ * spaces only between fours is long for a phone-width column, so the code
+ * box is allowed to break anywhere rather than overflow the page. */
+.fingerprint code {
+    display: inline-block;
+    padding: 0.45em 0.6em;
+    line-height: 1.7;
+    letter-spacing: 0.03em;
+    overflow-wrap: anywhere;
+}
+
 /* ---------- 8. Misc helpers ---------- */
 
 .muted {
