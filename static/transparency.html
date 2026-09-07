@@ -36,6 +36,9 @@
         <p>
             The journal exists for two reasons: a break-in must be reconstructable, and abuse must be visible. It lives on the server, in the system log, and nowhere else.
         </p>
+        <p>
+            A page that does not exist carries a small random marker in its HTML, unique to that one 404. If the marker ever comes back to the server inside a later request, the server writes an alert to its journal. The only way to send it back is to have copied the page text and echoed it, which no honest browser does, so the alert is the signature of something between you and the server that reads what passes through.
+        </p>
 
         <h2 class="rule">not recorded</h2>
         <p>

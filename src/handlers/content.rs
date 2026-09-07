@@ -152,7 +152,17 @@ fn html_response(html: &str) -> Response {
 /// line. Every miss is real: the server wrote the request into its journal.
 /// Shared by the router's catch-all so a gated unknown path and a missing
 /// asset answer in the same voice.
+///
+/// Each 404 also plants a canary token: 16 random bytes, hex encoded, on a
+/// data attribute of an invisible span (see canary.rs). The token rides the
+/// request's audit line, and a later request that echoes it back trips a
+/// CANARY alert. The span is hidden with the `hidden` attribute, not inline
+/// styling, because these pages carry a style-src CSP.
 pub fn not_found() -> Response {
+    let token = crate::canary::mint();
+    let body = format!(
+        "<html><body><p>Nothing lives at that address, and the server wrote your visit into its journal.</p><span data-c=\"{token}\" hidden></span></body></html>"
+    );
     Response {
         status: 404,
         reason: "Not Found",
@@ -160,7 +170,7 @@ pub fn not_found() -> Response {
             "Content-Type".to_string(),
             "text/html; charset=utf-8".to_string(),
         )],
-        body: b"<html><body><p>Nothing lives at that address, and the server wrote your visit into its journal.</p></body></html>".to_vec(),
+        body: body.into_bytes(),
     }
 }
 
@@ -263,6 +273,24 @@ mod tests {
         assert!(body.contains("<h1 class=\"page-title\">sample</h1>"));
         assert!(body.contains("<h2>A section</h2>"), "markdown body is rendered");
         assert!(body.contains("served by <code>zero-trust-server</code>"));
+    }
+
+    #[test]
+    fn not_found_plants_a_unique_invisible_canary_span() {
+        // Each 404 mints a fresh token, embeds it as a data attribute on an
+        // invisible span, and leaves it pending for the audit line. Two 404s
+        // must never carry the same token: uniqueness is what makes a later
+        // echo attributable to a specific miss.
+        let first = not_found();
+        let token_a = crate::canary::take_pending().expect("404 reports its token");
+        not_found();
+        let token_b = crate::canary::take_pending().expect("404 reports its token");
+        assert_ne!(token_a, token_b, "each 404 mints a fresh canary");
+        assert_eq!(token_a.len(), 32);
+        let body = String::from_utf8(first.body).expect("404 body is utf-8");
+        assert!(body.contains(&format!("data-c=\"{token_a}\"")), "token on the span");
+        assert!(body.contains("<span"), "token rides an explicit span");
+        assert!(body.contains(" hidden"), "span is invisible without inline style");
     }
 
     #[test]

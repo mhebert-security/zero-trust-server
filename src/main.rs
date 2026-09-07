@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod audit;
+mod canary;
 mod crypto;
 mod markdown;
 mod metrics;
@@ -292,6 +293,7 @@ fn reject_saturated_http(stream: &mut TcpStream) {
         session: None,
         pow_solve_ms: None,
         request_count: None,
+        canary: None,
     }
     .finish(503, started.elapsed());
 }
@@ -401,6 +403,7 @@ fn handle_tls_connection(
                     session: None,
                     pow_solve_ms: None,
                     request_count: None,
+                    canary: None,
                 };
                 let response =
                     middleware::headers::inject(error_response);
@@ -419,6 +422,15 @@ fn handle_tls_connection(
 
     // Route through middleware chain and handlers.
     let routed = router::handle(&request, peer_ip);
+
+    // Canary tripwire: a request that echoes a token a 404 planted is
+    // evidence the response body was captured and replayed (a proxy that
+    // logs responses, a script that read the DOM). Detection is report-only:
+    // the request is served normally, and a separate CANARY line records who
+    // echoed what token.
+    if let Some(token) = canary::scan(&request) {
+        audit::canary_alert("tls", &peer, &method, &path, &token);
+    }
 
     // The dashboard counters and the two appended audit columns are computed
     // here, in the one place that knows how routing ruled, so a number the
@@ -453,6 +465,16 @@ fn handle_tls_connection(
         None
     };
 
+    // A 404's own audit line names the canary its body planted, so a later
+    // CANARY alert can be traced back to the exact miss that seeded it. The
+    // token was left pending by the mint during routing (canary.rs); only a
+    // response that came back 404 picks it up.
+    let canary = if routed.response.status == 404 {
+        canary::take_pending()
+    } else {
+        None
+    };
+
     let ctx = audit::AuditCtx {
         listener: "tls",
         peer,
@@ -461,6 +483,7 @@ fn handle_tls_connection(
         session: routed.session,
         pow_solve_ms,
         request_count,
+        canary,
     };
     send_response(&mut tls_stream, routed.response, &ctx, started);
 }

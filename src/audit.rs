@@ -1,12 +1,13 @@
 //! Structured per-request audit log.
 //!
 //! Every served request writes exactly one TAB-separated line to stdout
-//! (the NixOS unit sends stdout to journald — see configuration.nix
+//! (the NixOS unit sends stdout to journald; see configuration.nix
 //! StandardOutput=journal), parseable without a log parser:
 //!
 //! ```text
 //! audit  <unix_ms>  <listener>  <peer>  <method>  <path>  <status>
 //!        <session>  <latency_ms>  <pow_solve_ms>  <request_count_this_session>
+//!        <canary>
 //! ```
 //!
 //! Fields are separated by a single TAB. journald already stamps arrival
@@ -18,13 +19,23 @@
 //! or the plaintext redirect/ACME listener which has no gate). Latency is
 //! connection-handler start → last byte written.
 //!
-//! The last two columns were appended on the right (2026-09-05) so parsers
-//! that read the original nine fields keep working unchanged. `pow_solve_ms`
+//! The last three columns were appended on the right (2026-09-05 and
+//! 2026-09-06) so parsers that read the original nine fields keep working
+//! unchanged. `pow_solve_ms`
 //! is the milliseconds between challenge issue and solve arrival for a
 //! successful POST /pow/verify, and "-" for every other request.
 //! `request_count_this_session` is the running count of requests made with
 //! the presented valid session (1 for the first such request), and "-" where
-//! no valid session was presented.
+//! no valid session was presented. `canary` is the token a 404 planted,
+//! present only on that 404's own line so a later CANARY alert (see below)
+//! can be correlated back to the miss that seeded it, and "-" for every
+//! other response.
+//!
+//! A request that echoes a planted canary token back in its headers or body
+//! writes a second, alert-only line with the `canary` prefix (see
+//! [`canary_alert`]), in addition to its own `audit` line. The per-request
+//! journal keeps its one-line invariant; the alert is a separate stream a
+//! parser can filter on the prefix.
 //!
 //! The two-phase shape mirrors how the pieces are known: a request's method,
 //! path and peer are understood where the request is read, but its status and
@@ -63,6 +74,10 @@ pub struct AuditCtx {
     /// carrying the token), present only where a valid session was presented
     /// and the gate ruled yes. None renders as "-".
     pub request_count: Option<u64>,
+    /// The canary token a 404 planted, present only on that 404's own line so
+    /// a later CANARY alert can be correlated back to the miss that seeded
+    /// it. None (every non-404 response) renders as "-".
+    pub canary: Option<String>,
 }
 
 impl AuditCtx {
@@ -84,7 +99,7 @@ impl AuditCtx {
             None => "na",
         };
         format!(
-            "audit\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "audit\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             unix_ms(),
             self.listener,
             sanitize(&self.peer),
@@ -95,6 +110,7 @@ impl AuditCtx {
             latency_ms,
             field_or_hyphen(self.pow_solve_ms),
             field_or_hyphen(self.request_count),
+            canary_or_hyphen(self.canary.as_deref()),
         )
     }
 }
@@ -171,6 +187,32 @@ fn field_or_hyphen(value: Option<u64>) -> String {
     value.map_or_else(|| "-".to_string(), |v| v.to_string())
 }
 
+/// Render the optional canary column as its token, or "-" when the response
+/// was not a 404 and planted none.
+fn canary_or_hyphen(value: Option<&str>) -> String {
+    value.map_or_else(|| "-".to_string(), str::to_string)
+}
+
+/// Emit a CANARY alert: a request echoed back a canary token a 404 planted.
+///
+/// The line names the listener, the peer, and the request that carried the
+/// token, plus the token itself, so an operator can search the journal for
+/// the original miss (its audit line holds the same value in the rightmost
+/// column). The `canary` prefix keeps the alert a separate stream from the
+/// per-request `audit` lines; the token is lowercase hex, already safe to
+/// print, but the request-derived fields are scrubbed like any audit field.
+pub fn canary_alert(listener: &str, peer: &str, method: &str, path: &str, token: &str) {
+    println!(
+        "canary\t{}\t{}\t{}\t{}\t{}\t{}",
+        unix_ms(),
+        listener,
+        sanitize(peer),
+        sanitize(method),
+        sanitize(path),
+        token,
+    );
+}
+
 /// Replace control characters so a hostile path/host header can never forge
 /// an extra log line or field.
 fn sanitize(s: &str) -> String {
@@ -198,6 +240,7 @@ mod tests {
             session,
             pow_solve_ms: None,
             request_count: None,
+            canary: None,
         }
     }
 
@@ -246,35 +289,49 @@ mod tests {
             session: None,
             pow_solve_ms: None,
             request_count: None,
+            canary: None,
         };
         let line = c.line(301, 2);
         assert_eq!(line.matches('\n').count(), 0);
         assert!(!line.contains('\r'));
-        assert_eq!(line.split('\t').count(), 11);
+        assert_eq!(line.split('\t').count(), 12);
     }
 
     #[test]
     fn appended_fields_default_to_hyphen() {
-        // A plain request has no solve timing and no session count; both
-        // rightmost columns read "-" so the record stays TAB-shape-stable.
+        // A plain request has no solve timing, no session count, and no
+        // canary; the three rightmost columns read "-" so the record stays
+        // TAB-shape-stable.
         let line = ctx(Some(true)).line(200, 3);
         let fields: Vec<&str> = line.split('\t').collect();
-        assert_eq!(fields.len(), 11);
+        assert_eq!(fields.len(), 12);
         assert_eq!(fields[9], "-");
         assert_eq!(fields[10], "-");
+        assert_eq!(fields[11], "-");
     }
 
     #[test]
     fn pow_solve_and_session_count_render_when_present() {
         // A solved /pow/verify and a counted session request each fill their
-        // column, proving the two new fields sit in the last two positions.
+        // column, proving the new fields sit in the last positions.
         let mut c = ctx(Some(true));
         c.pow_solve_ms = Some(412);
         c.request_count = Some(7);
         let line = c.line(302, 5);
         let fields: Vec<&str> = line.split('\t').collect();
-        assert_eq!(fields.len(), 11);
+        assert_eq!(fields.len(), 12);
         assert_eq!(fields[9], "412");
         assert_eq!(fields[10], "7");
+        assert_eq!(fields[11], "-", "a 302 plants no canary");
+    }
+
+    #[test]
+    fn a_404_canary_renders_in_the_rightmost_column() {
+        let mut c = ctx(None);
+        c.canary = Some("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6".to_string());
+        let line = c.line(404, 9);
+        let fields: Vec<&str> = line.split('\t').collect();
+        assert_eq!(fields.len(), 12);
+        assert_eq!(fields[11], "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
     }
 }

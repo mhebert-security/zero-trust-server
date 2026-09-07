@@ -210,7 +210,7 @@ mod tests {
     use proptest::prelude::*;
     use sha2::{Digest, Sha256};
 
-    /// HMAC-SHA256 instantiated on the RustCrypto stack.
+    /// HMAC-SHA256 instantiated on the `RustCrypto` stack.
     type HmacSha256 = Hmac<Sha256>;
 
     /// FIPS 180-4 §B.1: `SHA-256("abc")` = `ba7816bf…f20015ad`.
@@ -276,11 +276,11 @@ mod tests {
         out
     }
 
-    /// Independent HMAC-SHA256 from the RustCrypto `hmac` crate, which runs
-    /// on the RustCrypto `sha2` it depends on. Neither primitive is shared
-    /// with `hmac_sha256` (that function calls the hand-rolled `sha256`), so
-    /// agreement across arbitrary keys and messages means the hand-rolled
-    /// code left neither FIPS 198-1 nor FIPS 180-4.
+    /// Independent HMAC-SHA256 from the `RustCrypto` `hmac` crate, which
+    /// runs on the `RustCrypto` `sha2` it depends on. Neither primitive is
+    /// shared with `hmac_sha256` (that function calls the hand-rolled
+    /// `sha256`), so agreement across arbitrary keys and messages means the
+    /// hand-rolled code left neither FIPS 198-1 nor FIPS 180-4.
     fn oracle_hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
         let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
         mac.update(message);

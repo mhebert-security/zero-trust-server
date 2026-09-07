@@ -96,6 +96,7 @@ pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
                         session: None,
                         pow_solve_ms: None,
                         request_count: None,
+                        canary: None,
                     };
                     (respond(&req, cfg), ctx, head)
                 } else {
@@ -112,6 +113,7 @@ pub fn connection(stream: TcpStream, cfg: &RedirectConfig) {
                         session: None,
                         pow_solve_ms: None,
                         request_count: None,
+                        canary: None,
                     };
                     (redirect_to_https(&cfg.public_host, "/", None), ctx, false)
                 };

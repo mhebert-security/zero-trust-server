@@ -35,6 +35,9 @@ session.
 - Structured TAB-delimited audit line for every request: timestamp, listener,
   peer, method, path, status, session presence, latency, proof-of-work solve
   time, and the request's count within its session
+- Canary tokens: every 404 plants a fresh random marker in its HTML, records
+  it on that request's audit line, and alerts (a separate `canary` journal
+  line) if a later request ever echoes it back
 
 No `unsafe` anywhere in the server code.
 
@@ -54,6 +57,7 @@ src/
                   content (the pages, incl. transparency)
   metrics.rs      in-process dashboard counters
   audit.rs        structured request log
+  canary.rs       404 canary markers + replay detection
 static/           post-gate pages + challenge assets (embedded at build time)
 scripts/          Playwright capture tooling, WASM solve-time harness
 ```
