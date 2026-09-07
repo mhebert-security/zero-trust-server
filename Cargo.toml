@@ -19,18 +19,34 @@ structured-telemetry = []
 # management, PoW challenge logic, and security headers are, and SQLite runs
 # in-process with no server. Everything else is std only.
 #
+# The cyber-news fetcher (src/bin/cyber_news_fetcher.rs) stretches that rule
+# in exactly two places, both outbound. quick-xml parses the RSS and Atom
+# feeds, and webpki-roots supplies the Mozilla root set the fetcher verifies
+# those https connections against. Each is a focused, well-audited crate
+# where hand-rolling would cost more in correctness than it saves in
+# surface. They are linked into the server binary too, but only because this
+# package builds every target from one dependency set; the server code never
+# calls them.
+#
 # prefer-post-quantum pins the aws-lc-rs crypto provider (it is a rustls
 # default today, declared here so a future default change cannot silently
 # drop the X25519MLKEM768 hybrid key exchange). The provider's default
 # group list offers the hybrid first; tls.rs regression tests lock in that
 # a PQ-capable client negotiates it.
 [dependencies]
+# XML events only; default features pull serialization and encoding
+# detection, which the fetcher does not need (it decodes its feeds itself).
+quick-xml = { version = "0.42.0", default-features = false }
 # bundled compiles the SQLite amalgamation at build time, so the binary
 # needs no system SQLite development package (matching the project's
 # self-contained builds on the NixOS host).
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23", features = ["prefer-post-quantum"] }
 rustls-pemfile = "2.0"
+# The client half of rustls needs a root store. webpki-roots ships Mozilla's
+# set as static data in the same pki-types format rustls already uses, so the
+# fetcher builds its RootCertStore from it with no filesystem dependency.
+webpki-roots = "1.0.9"
 
 # Test-only crates, never linked into the shipped binary.
 # proptest drives property tests; sha2 and hmac are the independent, widely

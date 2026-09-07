@@ -17,18 +17,14 @@ mod http;
 mod router;
 mod redirect;
 mod semaphore;
-// The news store is not yet used by this binary (the fetcher owns the write
-// path and the /news route lands in a later task), so for now it is compiled
-// only under `cargo test`, where its unit tests run. Handlers/news.rs flips
-// this to an unconditional module declaration once it reads the store.
-#[cfg(test)]
-mod store;
-// Same story as store.rs: the fetcher binary (src/bin/cyber_news_fetcher.rs,
-// the next task) is the only target that needs the feed catalog. Until it
-// exists this module is compiled under `cargo test` only so its unit tests
-// run; the fetcher claims it with a #[path] include and this line goes away.
-#[cfg(test)]
-mod feeds;
+// The news aggregator shares code with this server through modules that live
+// in src/ but are owned by the standalone fetcher binary
+// (src/bin/cyber_news_fetcher.rs), which pulls them in with #[path] includes:
+// store.rs (SQLite schema and queries), feeds.rs (the source catalog), and
+// fetch.rs (the outbound HTTP/TLS/parse client). This server gains them as
+// ordinary modules when it needs them: feeds.rs and renderer.rs for the /news
+// page, store.rs when handlers/news.rs reads it. Until then they are compiled
+// only into the fetcher, whose own tests exercise them.
 mod middleware {
     pub mod admin;
     pub mod headers;
