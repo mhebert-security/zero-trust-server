@@ -1,0 +1,184 @@
+/* static/news.css — stylesheet for the /news page.
+ *
+ * The page renders from src/renderer.rs and borrows the token palette, the
+ * .page shell, and the header from style.css. This file styles only the
+ * feed-specific pieces: the updated line, the category tabs, the item cards,
+ * and the category badge. The CSP allows style-src 'self' only, so every rule
+ * for the page lives in a file, never inline.
+ *
+ * Tab filtering is pure CSS with no JavaScript. Each tab is a <label> bound
+ * to a hidden radio input of the same group; a :has() selector lights the
+ * checked tab's label and hides every item whose category class does not
+ * match. One rule per category below, and the All tab, checked by default,
+ * filters nothing. The ids and classes here are generated from
+ * feeds::Category::as_str tokens by the renderer, and a renderer test pins
+ * that they still agree.
+ */
+
+/* ---------- updated line ---------- */
+
+.news-updated {
+    color: var(--fg-muted);
+    font-size: 0.875rem;
+    margin: calc(-0.5rem) 0 1.5rem;
+}
+
+/* ---------- hidden radio controls ---------- */
+
+/* Visually hidden but focusable, so the labels that check them stay usable
+   from the keyboard even though the inputs themselves take no space. */
+.news-tab {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* ---------- tab bar ---------- */
+
+.tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1.75rem;
+}
+
+.tabs:focus-within {
+    border-radius: var(--radius);
+    outline: 1px solid var(--border);
+    outline-offset: 4px;
+}
+
+.tab {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.25rem 0.85rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.tab:hover {
+    color: var(--fg);
+    border-color: var(--fg-faint);
+}
+
+/* The label bound to the checked radio is the active tab. */
+.tabs:has(#tab-all:checked) label[for="tab-all"],
+.tabs:has(#tab-cve:checked) label[for="tab-cve"],
+.tabs:has(#tab-breach:checked) label[for="tab-breach"],
+.tabs:has(#tab-threatintel:checked) label[for="tab-threatintel"],
+.tabs:has(#tab-ot:checked) label[for="tab-ot"],
+.tabs:has(#tab-research:checked) label[for="tab-research"] {
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+/* ---------- feed list ---------- */
+
+.news {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 1rem;
+}
+
+.news-item {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem 1.15rem;
+    display: grid;
+    gap: 0.4rem;
+}
+
+.news-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.news-title {
+    color: var(--fg);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.news-title:hover {
+    color: var(--accent);
+}
+
+.news-time {
+    margin-left: auto;
+    color: var(--fg-faint);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.news-desc {
+    color: var(--fg-muted);
+    font-size: 0.9375rem;
+    margin: 0;
+}
+
+.news-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.news-source {
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
+.badge {
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.05rem 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.news-empty {
+    color: var(--fg-muted);
+}
+
+/* ---------- category filtering ---------- */
+
+/* Hiding, never removing: a checked tab turns the other items' display off,
+   and the All tab (checked by default) hides none. An item whose category the
+   catalog no longer knows has no cat- class, so it survives only under All. */
+.tabs:has(#tab-cve:checked) ~ .news .news-item:not(.cat-cve),
+.tabs:has(#tab-breach:checked) ~ .news .news-item:not(.cat-breach),
+.tabs:has(#tab-threatintel:checked) ~ .news .news-item:not(.cat-threatintel),
+.tabs:has(#tab-ot:checked) ~ .news .news-item:not(.cat-ot),
+.tabs:has(#tab-research:checked) ~ .news .news-item:not(.cat-research) {
+    display: none;
+}
+
+/* ---------- mobile ---------- */
+
+@media (max-width: 30rem) {
+    .tabs {
+        gap: 0.375rem;
+    }
+
+    .news-time {
+        margin-left: 0;
+    }
+}

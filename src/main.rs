@@ -17,14 +17,18 @@ mod http;
 mod router;
 mod redirect;
 mod semaphore;
-// The news aggregator shares code with this server through modules that live
-// in src/ but are owned by the standalone fetcher binary
-// (src/bin/cyber_news_fetcher.rs), which pulls them in with #[path] includes:
-// store.rs (SQLite schema and queries), feeds.rs (the source catalog), and
-// fetch.rs (the outbound HTTP/TLS/parse client). This server gains them as
-// ordinary modules when it needs them: feeds.rs and renderer.rs for the /news
-// page, store.rs when handlers/news.rs reads it. Until then they are compiled
-// only into the fetcher, whose own tests exercise them.
+// The news feature shares three modules with the standalone fetcher
+// (src/bin/cyber_news_fetcher.rs pulls store.rs, feeds.rs, and fetch.rs in
+// with #[path] includes). This server compiles the store, the catalog, and
+// the page renderer now, but only for their tests: nothing calls them until
+// the /news route lands (handlers/news.rs), which flips them to unconditional
+// modules and drops the cfg(test) guard.
+#[cfg(test)]
+mod store;
+#[cfg(test)]
+mod feeds;
+#[cfg(test)]
+mod renderer;
 mod middleware {
     pub mod admin;
     pub mod headers;
