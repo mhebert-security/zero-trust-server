@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matthew Hebert · writing</title>
+    <meta name="description" content="Technical articles about building things in security and systems programming. Each one is honest about what broke and what the failure taught.">
+    <meta property="og:title" content="Matthew Hebert · writing">
+    <meta property="og:description" content="Technical articles about building things in security and systems programming. Each one is honest about what broke and what the failure taught.">
+    <meta property="og:url" content="https://mhebert.dev/writing/">
+    <link rel="icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+    <header class="page-head">
+        <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+        <nav class="nav" aria-label="Site">
+            <a href="/">index</a>
+            <a href="/projects">projects</a>
+            <a href="/about">about</a>
+            <a href="/writing/" aria-current="page">writing</a>
+            <a href="/news">news</a>
+            <a href="/contact">contact</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">writing</h1>
+        <p class="lead">
+            I write about building things in security and systems programming.
+            These are technical articles, not summaries, and each one is honest
+            about what broke and what the failure taught. The full essay lives
+            here, not behind a link to somewhere else.
+        </p>
+
+        <div class="proj-list">
+            <article class="proj">
+                <h3><a href="/writing/cybersecurity-news-aggregator-rust.html">Building a Cybersecurity News Aggregator in Rust: What the Feeds Taught Me</a></h3>
+                <p class="tagline">Ten security feeds, one page, and three failures that rewrote large sections of the fetcher.</p>
+                <p class="faint">Published <time datetime="2026-09-12">2026-09-12</time></p>
+            </article>
+
+            <article class="proj">
+                <h3><a href="/writing/detection-rules-that-say-what-they-caught.html">Detection Rules That Say What They Caught</a></h3>
+                <p class="tagline">A Sigma detection engineering lab where every rule fired against real adversary behavior before it shipped.</p>
+                <p class="faint">Published <time datetime="2026-09-12">2026-09-12</time></p>
+            </article>
+
+            <article class="proj">
+                <h3><a href="/writing/zero-trust-http-rust.html">Zero Trust HTTP in Rust: What I Learned Building It</a></h3>
+                <p class="tagline">A from-scratch HTTP server with TLS 1.3, a SHA-256 proof-of-work gate, and no frameworks.</p>
+                <p class="faint">Published <time datetime="2026-09-12">2026-09-12</time></p>
+            </article>
+        </div>
+    </main>
+
+    <footer class="page-footer">
+        served by <code>zero-trust-server</code> · HTTP/1.1 from raw sockets · rustls TLS 1.3 · a proof of work gate · <a href="/transparency">what this server records</a>
+    </footer>
+</body>
+</html>

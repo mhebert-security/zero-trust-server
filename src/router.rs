@@ -91,6 +91,13 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
         // collide.
         (true, path) if path.starts_with("/projects/") => content::project(path),
 
+        // Writing articles — /writing/<slug>.html, plus /writing/ for the
+        // index. The bare "/writing" arm above wins for the no-slash route,
+        // so the two never collide. Slugs are matched against the three
+        // static essay documents in content::writing_article; an unknown
+        // path falls through to the shared 404 below.
+        (true, path) if path.starts_with("/writing/") => content::writing_article(path),
+
         // Catch-all — 404 for anything not explicitly listed. Shared with the
         // static-asset miss handler so both answer in the same human voice.
         _ => content::not_found(),
@@ -487,6 +494,44 @@ mod tests {
         // The challenge answers and the audit context records the gate no.
         let routed = handle(&request(Method::Get, "/projects/sample"), None);
         assert_eq!(routed.session, Some(false));
+    }
+
+    #[test]
+    fn gated_writing_article_routes_to_the_page_with_a_session() {
+        // /writing/<slug>.html is portfolio content like /about: it answers
+        // only after the session gate, and the handler matches against the
+        // three embedded essay documents.
+        let routed = handle(
+            &gated_request(Method::Get, "/writing/zero-trust-http-rust.html"),
+            None,
+        );
+        let resp = &routed.response;
+        assert_eq!(resp.status, 200);
+        assert_eq!(routed.session, Some(true));
+        assert!(has_header(resp, "Content-Security-Policy"));
+        let body = String::from_utf8(resp.body.clone()).expect("utf-8");
+        assert!(
+            body.contains("<h1 class=\"page-title\">Zero Trust HTTP in Rust: What I Learned Building It</h1>")
+        );
+        assert!(
+            body.contains(r#"<a href="/writing/" aria-current="page">writing</a>"#),
+            "the essay marks the writing nav item current"
+        );
+    }
+
+    #[test]
+    fn gated_writing_index_and_unknown_slug() {
+        // The directory route serves the index; an unknown slug misses in the
+        // same voice as every other 404, both behind the session gate.
+        let index = handle(&gated_request(Method::Get, "/writing/"), None);
+        assert_eq!(index.response.status, 200);
+        assert_eq!(index.session, Some(true));
+        let body = String::from_utf8(index.response.body).expect("utf-8");
+        assert!(body.contains("<h1 class=\"page-title\">writing</h1>"));
+
+        let miss = handle(&gated_request(Method::Get, "/writing/nope.html"), None);
+        assert_eq!(miss.response.status, 404);
+        assert_eq!(miss.session, Some(true));
     }
 
     #[test]

@@ -22,9 +22,36 @@ pub fn projects(_request: &Request) -> Response {
     html_response(include_str!("../../static/projects.html"))
 }
 
-/// Serve the writing page.
+/// Serve the writing index page. This is the same document served at
+/// /writing and /writing/, so the bare route and the directory route never
+/// disagree.
 pub fn writing(_request: &Request) -> Response {
-    html_response(include_str!("../../static/writing.html"))
+    html_response(include_str!("../../static/writing/index.html"))
+}
+
+/// Serve a writing article at /writing/<slug>.html.
+/// The three published essays are static HTML documents, not Markdown read at
+/// startup like the project writeups, so each is an explicit arm here. An
+/// unknown slug (a typo, a traversal attempt, a trailing slash) falls through
+/// to the shared 404, exactly like any other miss.
+pub fn writing_article(path: &str) -> Response {
+    let Some(slug) = path.strip_prefix("/writing/") else {
+        return not_found();
+    };
+    let html = match slug {
+        "" | "index.html" => include_str!("../../static/writing/index.html"),
+        "zero-trust-http-rust.html" => {
+            include_str!("../../static/writing/zero-trust-http-rust.html")
+        }
+        "detection-rules-that-say-what-they-caught.html" => {
+            include_str!("../../static/writing/detection-rules-that-say-what-they-caught.html")
+        }
+        "cybersecurity-news-aggregator-rust.html" => {
+            include_str!("../../static/writing/cybersecurity-news-aggregator-rust.html")
+        }
+        _ => return not_found(),
+    };
+    html_response(html)
 }
 
 /// Serve the contact page.
@@ -340,6 +367,54 @@ mod tests {
         let body = String::from_utf8(response.body).expect("html is utf-8");
         assert!(body.contains(r#"<link rel="icon" href="/static/favicon.ico">"#));
         assert!(body.contains(r#"<link rel="stylesheet" href="/static/style.css">"#));
+    }
+
+    #[test]
+    fn writing_articles_serve_from_static_documents() {
+        // The three essays and the index are static HTML, embedded at compile
+        // time. Each known slug serves 200 with the shared chrome; the bare
+        // directory and the index file both serve the index; an unknown slug
+        // and a traversal attempt fall through to the shared 404.
+        let known = [
+            (
+                "/writing/zero-trust-http-rust.html",
+                "Zero Trust HTTP in Rust: What I Learned Building It",
+            ),
+            (
+                "/writing/detection-rules-that-say-what-they-caught.html",
+                "Detection Rules That Say What They Caught",
+            ),
+            (
+                "/writing/cybersecurity-news-aggregator-rust.html",
+                "Building a Cybersecurity News Aggregator in Rust: What the Feeds Taught Me",
+            ),
+        ];
+        for (path, title) in known {
+            let response = writing_article(path);
+            assert_eq!(response.status, 200, "{path} must serve");
+            let body = String::from_utf8(response.body).expect("html is utf-8");
+            assert!(body.contains(r#"<link rel="icon" href="/static/favicon.ico">"#));
+            assert!(
+                body.contains(&format!("<h1 class=\"page-title\">{title}</h1>")),
+                "{path} must render its title"
+            );
+            assert!(body.contains("served by <code>zero-trust-server</code>"));
+        }
+
+        for path in ["/writing/", "/writing/index.html"] {
+            let response = writing_article(path);
+            assert_eq!(response.status, 200, "{path} serves the index");
+            let body = String::from_utf8(response.body).expect("html is utf-8");
+            assert!(body.contains("<h1 class=\"page-title\">writing</h1>"));
+        }
+
+        for path in [
+            "/writing/does-not-exist.html",
+            "/writing/../etc/passwd",
+            "/writing/zero-trust-http-rust.html/extra",
+        ] {
+            assert_eq!(writing_article(path).status, 404, "{path} must miss");
+        }
     }
 
     #[test]

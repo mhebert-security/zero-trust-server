@@ -228,7 +228,7 @@ fn page_shell(slug: &str, title: &str, description: &str, body: &str) -> String 
             <a href="/">index</a>
             <a href="/projects" aria-current="page">projects</a>
             <a href="/about">about</a>
-            <a href="/writing">writing</a>
+            <a href="/writing/">writing</a>
             <a href="/contact">contact</a>
         </nav>
     </header>

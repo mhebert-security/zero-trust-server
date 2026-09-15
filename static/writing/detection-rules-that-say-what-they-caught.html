@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matthew Hebert · Detection Rules That Say What They Caught</title>
+    <meta name="description" content="A Sigma detection engineering lab where every rule fired against real adversary behavior before it shipped.">
+    <meta property="og:title" content="Matthew Hebert · Detection Rules That Say What They Caught">
+    <meta property="og:description" content="A Sigma detection engineering lab where every rule fired against real adversary behavior before it shipped.">
+    <meta property="og:url" content="https://mhebert.dev/writing/detection-rules-that-say-what-they-caught.html">
+    <link rel="icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+    <header class="page-head">
+        <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+        <nav class="nav" aria-label="Site">
+            <a href="/">index</a>
+            <a href="/projects">projects</a>
+            <a href="/about">about</a>
+            <a href="/writing/" aria-current="page">writing</a>
+            <a href="/news">news</a>
+            <a href="/contact">contact</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">Detection Rules That Say What They Caught</h1>
+        <p class="muted"><strong>Published:</strong> <time datetime="2026-09-12">2026-09-12</time> · <strong>Code:</strong> <a href="https://github.com/mhebert-security/sigma-rules">github.com/mhebert-security/sigma-rules</a></p>
+        <div class="writeup">
+<hr>
+<p>I built a detection lab to find out whether I could write a rule that actually worked. Not a rule that compiled. Not a rule that looked reasonable on paper. A rule that caught a real attack and could prove it.</p>
+<p>Most detection engineering portfolios are a collection of YAML files. Someone read a blog post about a technique, translated it into a detection format, and pushed it to GitHub. The rule has never fired in anger. It has never been tested against actual adversary behavior. It is a hypothesis dressed up as a fact, and the difference matters enormously when an analyst is deciding whether to wake someone up at three in the morning.</p>
+<p>I built mine differently. Every rule in this repository fired against real telemetry before it shipped.</p>
+<hr>
+<h2>The lab</h2>
+<p>The infrastructure is two machines. A Windows Server instance running on AWS generates the events. A Wazuh manager, also on AWS, collects and analyzes them.</p>
+<p>Wazuh is a security information and event management platform. The short version: every notable thing that happens on your monitored machines gets sent to Wazuh, which runs it through a ruleset and fires an alert when something matches. Think of it as a very attentive reader who has memorized a long list of things to watch for and never takes a break.</p>
+<p>On the Windows machine I installed Sysmon, a Microsoft tool that instruments the operating system at a low level and generates detailed event logs for things the default Windows logging does not capture. Process creation, network connections, registry modifications, file creation, memory access between processes. Sysmon sees things that basic Windows event logging pretends not to notice.</p>
+<p>Between Sysmon and Wazuh, I can observe what happens when an attacker runs a technique and compare it against what my rule expected to see. If the rule fires, I have a validated detection. If it does not, I have a gap to fix.</p>
+<hr>
+<h2>Atomic Red Team</h2>
+<p>The adversary in my lab is a tool called Atomic Red Team. It is a library of small, contained attack simulations maintained by a security company called Red Canary. Each simulation is called an atomic test, because it isolates one specific technique from the larger category it belongs to. Running an atomic test generates real telemetry on a real machine without doing anything irreversible or harmful.</p>
+<p>This is what separates a tested rule from a hypothetical one. I do not have to imagine what a malicious PowerShell invocation looks like in the logs. I can generate one, observe exactly how Sysmon records it, and write a rule against what I actually saw rather than what I assumed I would see.</p>
+<p>The gap between assumption and observation turned out to be one of the most useful things this project taught me.</p>
+<hr>
+<h2>The framework behind the labels</h2>
+<p>MITRE ATT&amp;CK is a public catalog of the techniques real attackers use, organized by phase of an intrusion. Initial access. Execution. Persistence. Credential access. Lateral movement. Each technique has an identifier, a description, and documentation of how it has been observed in the wild.</p>
+<p>Every rule in this repository maps to a technique in that catalog. That mapping is not decoration. It answers a question that every alert should answer and most do not: what part of an attack does this represent?</p>
+<p>An alert that says "suspicious PowerShell activity" is the beginning of a question. An alert that says "T1059.001: command and scripting interpreter, PowerShell sub-technique, encoded command execution" is a partial answer. An analyst reading it knows immediately which phase of an intrusion they are looking at, what the attacker is trying to accomplish, and what probably comes next if the technique succeeded. That context is how a single alert becomes a story someone can act on rather than a data point they have to interpret from scratch.</p>
+<hr>
+<h2>How a rule gets written</h2>
+<p>The format I use is Sigma. Sigma is a vendor-neutral rule specification for security detections. A Sigma rule describes what to look for in abstract terms, and a conversion tool translates it into the native format of whatever platform you deploy to. The same rule can run on Wazuh, Splunk, Elasticsearch, or Microsoft Sentinel without being rewritten for each one.</p>
+<p>Every rule I write has the same required fields. A title describing what it detects. A unique identifier. A status field that distinguishes a validated rule from a hypothesis. A description that explains the adversary behavior, not just the detection logic. References to the relevant ATT&amp;CK technique. The source of the log data it expects. The detection logic itself. A list of known legitimate uses that would produce a false positive. A severity level.</p>
+<p>That last category, false positives, is where most detection rules reveal whether their author thought seriously about the problem. A rule that lists "legitimate admin activity" as a false positive has not thought seriously about the problem. A rule that lists "SCCM invoking encoded PowerShell during package deployment" has named a specific, concrete scenario that a real analyst can look for when triaging an alert. The specificity is the point.</p>
+<hr>
+<h2>The first rule and what it cost me</h2>
+<p>The first technique I wrote a rule for was T1059.001: PowerShell encoded command execution.</p>
+<p>PowerShell accepts a flag called <code>-EncodedCommand</code> that takes a Base64-encoded string and executes it as a command. Attackers use it to conceal what they are running from casual inspection. The command line shows gibberish instead of the actual payload. It is one of the most common techniques in post-exploitation toolkits and one of the most reliable signals that something is happening that should not be.</p>
+<p>Writing the detection logic was straightforward. PowerShell process creation, command line containing the encoded command flag, fire an alert.</p>
+<p>Getting it to fire was not.</p>
+<p>The first problem was the group name. Wazuh organizes its rules into groups, and a child rule fires only when an event has already been processed by a parent rule in the correct group. I used the wrong group name for Sysmon process creation events. The rule was syntactically valid, logically correct, and completely inert. It never evaluated against anything. The fix was finding the right group name by reading the Wazuh built-in ruleset directly rather than assuming from documentation.</p>
+<p>The second problem was the flag variants. PowerShell accepts abbreviated versions of its flags. <code>-EncodedCommand</code> can be shortened to <code>-EnC</code>, to <code>-EC</code>, or just to <code>-E</code>. The Atomic test I ran used <code>-E</code>. My rule only matched the full flag name. Real adversaries use abbreviated flags constantly, precisely because they are shorter and less conspicuous. The fix was expanding the regular expression to cover every valid abbreviation.</p>
+<p>The third problem was the regular expression itself. Matching <code>-E</code> in a command line is easy to get wrong. A pattern that matches the letter E preceded by a hyphen will also match any flag beginning with E that is not the encoded command flag. The correct pattern anchors to word boundaries and accounts for both hyphen and slash prefixes, because PowerShell accepts both.</p>
+<p>By the time the rule fired reliably, I had learned more about PowerShell's command line parsing than the PowerShell documentation ever bothered to explain. That is the cost of testing against real behavior instead of assumed behavior. It is also why the tested version of a rule is worth more than the untested one.</p>
+<hr>
+<h2>What LSASS taught me about thresholds</h2>
+<p>The second rule I wrote was for T1003.001: LSASS memory access.</p>
+<p>LSASS is a Windows process that handles authentication. It keeps credentials in memory because it needs them constantly. Attackers access LSASS memory to extract those credentials, a technique made famous by a tool called Mimikatz. It is one of the most heavily documented attack techniques in existence and one of the most reliable indicators that an intrusion has moved past initial access into credential theft.</p>
+<p>Detecting it seems simple: alert when a non-system process opens a handle to LSASS with read permissions. The reality is that dozens of legitimate processes open handles to LSASS constantly. Antivirus software. System management tools. Some backup software. The signal is real, but so is the noise.</p>
+<p>My rule filters out known legitimate sources by matching the source process image against a list of trusted system paths. Anything from a known system directory with a known trusted name passes without alerting. Anything else fires.</p>
+<p>Getting the exclusion list right required running the lab without any detection rules and observing every process that touched LSASS over a period of normal operation. Then I wrote the exclusions against what I actually saw, not against a generic list copied from a blog post. A generic list is someone else's environment. My exclusion list reflects mine.</p>
+<p>The rule fires on things that are not on the list. It does not fire on things that are. The threshold between those two categories required observation to establish.</p>
+<hr>
+<h2>The quality gate</h2>
+<p>A rule earns the status "test" after three things happen. The Sigma YAML is written. The Wazuh XML translation is deployed and the manager loads it without errors. An Atomic Red Team test fires the technique and the alert appears in the Wazuh dashboard with the correct rule ID.</p>
+<p>A rule that passes those three gates is a rule I can defend. I know the telemetry is real because I generated it. I know the rule fires because I watched it fire. I know the false positive assessment is grounded because I ran the rule against normal system behavior before I declared it stable.</p>
+<p>Rules that have not passed all three gates are labeled "experimental." The label is honest. An experimental rule is a hypothesis. A tested rule is a finding.</p>
+<hr>
+<h2>The things the tool taught me that I did not expect</h2>
+<p>Wazuh has its own built-in detection rules that overlap with mine. When I first deployed the PowerShell encoded command rule, I searched for my custom rule ID in the dashboard and found nothing. The built-in rules had already caught the event first. In Wazuh, when a parent rule fires, child rules that chain off it can add additional context. But a parallel rule that covers the same event independently is simply never evaluated. The engine stops at the first match.</p>
+<p>The fix is to chain your rule as a child of the relevant built-in rule rather than writing it as a parallel alternative. My rule now adds context on top of what Wazuh already detected. It does not compete with the built-in detection. It refines it.</p>
+<p>I would not have discovered this without testing against real events. A rule that never fires in a lab might be working perfectly or might be written in a way that guarantees it never evaluates. The only way to tell the difference is to make it fire.</p>
+<hr>
+<h2>Where this goes</h2>
+<p>The six rules currently in the repository cover five ATT&amp;CK tactics: execution, credential access, persistence, defense evasion, and local account creation. That breadth is deliberate. A portfolio that covers only one phase of an intrusion demonstrates a narrow view of how attacks actually unfold.</p>
+<p>The next phase is OT and ICS techniques. Operational technology, the software that controls industrial equipment, runs on protocols designed before network security was a consideration. Modbus and DNP3 move control commands in plaintext. CISA publishes advisories about active exploitation of industrial systems. I am already pulling those advisories into the news aggregator on this site. Writing detection rules against them is the natural next step, and it narrows the portfolio toward a specific and underserved part of the field.</p>
+<p>The lab is real. The alerts fired. The code is public because the claim requires it.</p>
+        </div>
+    </main>
+
+    <footer class="page-footer">
+        served by <code>zero-trust-server</code> · HTTP/1.1 from raw sockets · rustls TLS 1.3 · a proof of work gate · <a href="/transparency">what this server records</a>
+    </footer>
+</body>
+</html>

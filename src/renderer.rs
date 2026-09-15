@@ -164,7 +164,7 @@ fn page_shell(body: &str) -> String {
             <a href="/">index</a>
             <a href="/projects">projects</a>
             <a href="/about">about</a>
-            <a href="/writing">writing</a>
+            <a href="/writing/">writing</a>
             <a href="/news" aria-current="page">news</a>
             <a href="/contact">contact</a>
         </nav>
