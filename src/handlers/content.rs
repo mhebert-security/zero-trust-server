@@ -54,6 +54,83 @@ pub fn writing_article(path: &str) -> Response {
     html_response(html)
 }
 
+/// Serve an OT/ICS learning page under /ot-learning/.
+/// The series index, six module indexes, and twelve article placeholders are
+/// static HTML documents embedded at compile time. Each known path is an
+/// explicit arm here; an unknown path (a typo, a traversal attempt, a stray
+/// slash) falls through to the shared 404, exactly like any other miss.
+pub fn ot_learning(path: &str) -> Response {
+    let Some(slug) = path.strip_prefix("/ot-learning/") else {
+        return not_found();
+    };
+    let html = match slug {
+        "" | "index.html" => include_str!("../../static/ot-learning/index.html"),
+
+        "module-1-mental-model/" | "module-1-mental-model/index.html" => {
+            include_str!("../../static/ot-learning/module-1-mental-model/index.html")
+        }
+        "module-1-mental-model/article-1-ot-vs-it.html" => {
+            include_str!("../../static/ot-learning/module-1-mental-model/article-1-ot-vs-it.html")
+        }
+        "module-1-mental-model/article-2-incident-reports.html" => {
+            include_str!("../../static/ot-learning/module-1-mental-model/article-2-incident-reports.html")
+        }
+
+        "module-2-protocols/" | "module-2-protocols/index.html" => {
+            include_str!("../../static/ot-learning/module-2-protocols/index.html")
+        }
+        "module-2-protocols/article-3-modbus.html" => {
+            include_str!("../../static/ot-learning/module-2-protocols/article-3-modbus.html")
+        }
+        "module-2-protocols/article-4-ethernetip.html" => {
+            include_str!("../../static/ot-learning/module-2-protocols/article-4-ethernetip.html")
+        }
+        "module-2-protocols/article-5-dnp3-iec61850.html" => {
+            include_str!("../../static/ot-learning/module-2-protocols/article-5-dnp3-iec61850.html")
+        }
+
+        "module-3-detection/" | "module-3-detection/index.html" => {
+            include_str!("../../static/ot-learning/module-3-detection/index.html")
+        }
+        "module-3-detection/article-6-ics-attck-rules.html" => {
+            include_str!("../../static/ot-learning/module-3-detection/article-6-ics-attck-rules.html")
+        }
+        "module-3-detection/article-7-malcolm-deployment.html" => {
+            include_str!("../../static/ot-learning/module-3-detection/article-7-malcolm-deployment.html")
+        }
+
+        "module-4-standards/" | "module-4-standards/index.html" => {
+            include_str!("../../static/ot-learning/module-4-standards/index.html")
+        }
+        "module-4-standards/article-8-iec-62443.html" => {
+            include_str!("../../static/ot-learning/module-4-standards/article-8-iec-62443.html")
+        }
+        "module-4-standards/article-9-nerc-cip.html" => {
+            include_str!("../../static/ot-learning/module-4-standards/article-9-nerc-cip.html")
+        }
+
+        "module-5-medical-devices/" | "module-5-medical-devices/index.html" => {
+            include_str!("../../static/ot-learning/module-5-medical-devices/index.html")
+        }
+        "module-5-medical-devices/article-10-clinical-perspective.html" => {
+            include_str!("../../static/ot-learning/module-5-medical-devices/article-10-clinical-perspective.html")
+        }
+        "module-5-medical-devices/article-11-dicom-analysis.html" => {
+            include_str!("../../static/ot-learning/module-5-medical-devices/article-11-dicom-analysis.html")
+        }
+
+        "module-6-capstone/" | "module-6-capstone/index.html" => {
+            include_str!("../../static/ot-learning/module-6-capstone/index.html")
+        }
+        "module-6-capstone/article-12-lab-architecture.html" => {
+            include_str!("../../static/ot-learning/module-6-capstone/article-12-lab-architecture.html")
+        }
+
+        _ => return not_found(),
+    };
+    html_response(html)
+}
+
 /// Serve the contact page.
 /// The PGP fingerprint block is inserted at serve time from the embedded key
 /// (see [`FINGERPRINT_MARKER`]), so the fingerprint a visitor reads always
@@ -414,6 +491,54 @@ mod tests {
             "/writing/zero-trust-http-rust.html/extra",
         ] {
             assert_eq!(writing_article(path).status, 404, "{path} must miss");
+        }
+    }
+
+    #[test]
+    fn ot_learning_pages_serve_from_static_documents() {
+        // The series index, module indexes, and article placeholders are all
+        // static HTML, embedded at compile time. A representative set serves
+        // 200 with the shared chrome; the bare directory and index.html both
+        // serve an index; an unknown path and a traversal attempt miss.
+        let known = [
+            ("/ot-learning/", "OT/ICS Security: Learning in Public"),
+            (
+                "/ot-learning/index.html",
+                "OT/ICS Security: Learning in Public",
+            ),
+            ("/ot-learning/module-1-mental-model/", "The Mental Model"),
+            (
+                "/ot-learning/module-1-mental-model/index.html",
+                "The Mental Model",
+            ),
+            (
+                "/ot-learning/module-1-mental-model/article-1-ot-vs-it.html",
+                "Why OT Security Is Not Just IT Security with Hard Hats",
+            ),
+            (
+                "/ot-learning/module-6-capstone/article-12-lab-architecture.html",
+                "Building an OT Detection Lab for Under $100 per Month: Full Architecture Walkthrough",
+            ),
+        ];
+        for (path, title) in known {
+            let response = ot_learning(path);
+            assert_eq!(response.status, 200, "{path} must serve");
+            let body = String::from_utf8(response.body).expect("html is utf-8");
+            assert!(body.contains(r#"<link rel="icon" href="/static/favicon.ico">"#));
+            assert!(
+                body.contains(&format!("<h1 class=\"page-title\">{title}</h1>")),
+                "{path} must render its title"
+            );
+            assert!(body.contains("served by <code>zero-trust-server</code>"));
+        }
+
+        for path in [
+            "/ot-learning/does-not-exist",
+            "/ot-learning/module-9-nope/",
+            "/ot-learning/../etc/passwd",
+            "/ot-learning/module-1-mental-model/article-1-ot-vs-it.html/extra",
+        ] {
+            assert_eq!(ot_learning(path).status, 404, "{path} must miss");
         }
     }
 

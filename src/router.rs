@@ -98,6 +98,11 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
         // path falls through to the shared 404 below.
         (true, path) if path.starts_with("/writing/") => content::writing_article(path),
 
+        // OT/ICS learning series — /ot-learning/<module>/<article>.html plus
+        // the series and module indexes. The handler matches each known page
+        // explicitly; an unknown path falls through to the shared 404 below.
+        (true, path) if path.starts_with("/ot-learning/") => content::ot_learning(path),
+
         // Catch-all — 404 for anything not explicitly listed. Shared with the
         // static-asset miss handler so both answer in the same human voice.
         _ => content::not_found(),
@@ -530,6 +535,33 @@ mod tests {
         assert!(body.contains("<h1 class=\"page-title\">writing</h1>"));
 
         let miss = handle(&gated_request(Method::Get, "/writing/nope.html"), None);
+        assert_eq!(miss.response.status, 404);
+        assert_eq!(miss.session, Some(true));
+    }
+
+    #[test]
+    fn gated_ot_learning_routes_to_pages_with_a_session() {
+        // The series index, a module index, and an article placeholder are
+        // gated portfolio content, and an unknown path misses in the same
+        // voice as every other 404.
+        for (path, title) in [
+            ("/ot-learning/", "OT/ICS Security: Learning in Public"),
+            ("/ot-learning/module-2-protocols/", "Protocol Literacy"),
+            (
+                "/ot-learning/module-2-protocols/article-3-modbus.html",
+                "Modbus Has No Password",
+            ),
+        ] {
+            let routed = handle(&gated_request(Method::Get, path), None);
+            let resp = &routed.response;
+            assert_eq!(resp.status, 200, "{path} must serve");
+            assert_eq!(routed.session, Some(true));
+            assert!(has_header(resp, "Content-Security-Policy"));
+            let body = String::from_utf8(resp.body.clone()).expect("utf-8");
+            assert!(body.contains(&format!("<h1 class=\"page-title\">{title}</h1>")));
+        }
+
+        let miss = handle(&gated_request(Method::Get, "/ot-learning/nope.html"), None);
         assert_eq!(miss.response.status, 404);
         assert_eq!(miss.session, Some(true));
     }
