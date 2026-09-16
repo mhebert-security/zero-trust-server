@@ -31,8 +31,8 @@
         <div class="writeup">
 <hr>
 <p>I already had a web server that no one could reach without proving they were human. What I did not have was anything worth reading once they got through.</p>
-<p>The proof of work gate on mhebert.dev exists to keep automated scanners out. A real person who solves a SHA-256 puzzle to get in deserves something on the other side. So I built a news aggregator that pulls from ten cybersecurity sources every six hours and serves the results behind the gate. No tracking pixels. No JavaScript. One page of things worth reading, fresh four times a day.</p>
-<p>The sources I chose are the ones I actually read: NVD for new vulnerability disclosures, the CISA Known Exploited Vulnerabilities catalog, CISA's ICS advisories for operational technology threats, BleepingComputer, Krebs on Security, The Hacker News, Dark Reading, SANS ISC, Schneier on Security, and the r/netsec community feed. Ten sources. One page.</p>
+<p>The proof of work gate on mhebert.dev exists to keep automated scanners out. A real person who solves a SHA-256 puzzle to get in deserves something on the other side. So I built a news aggregator that pulls from ten cybersecurity sources every six hours and serves the results behind the gate. No tracking pixels and no JavaScript, just one page of things worth reading, fresh four times a day.</p>
+<p>The sources I chose are the ones I actually read: NVD for new vulnerability disclosures, the CISA Known Exploited Vulnerabilities catalog, CISA's ICS advisories for operational technology threats, BleepingComputer, Krebs on Security, The Hacker News, Dark Reading, SANS ISC, Schneier on Security, and the r/netsec community feed.</p>
 <p>What follows is what building it actually looked like, which was not what I expected.</p>
 <hr>
 <h2>What an RSS feed is, and why parsing one by hand is interesting</h2>
@@ -50,7 +50,7 @@
 <hr>
 <h2>NVD retired its RSS feed and did not tell me</h2>
 <p>The National Vulnerability Database is the authoritative source for CVE records in the United States. NVD is run by NIST, the National Institute of Standards and Technology, and every serious vulnerability management program uses it. When I first built the aggregator, I pointed it at NVD's RSS export, an XML file NIST published containing recent CVE disclosures.</p>
-<p>NVD retired that RSS export. No warning. The file was simply gone.</p>
+<p>NVD retired that RSS export with no warning. The file was simply gone.</p>
 <p>The first sign was that the fetcher completed eight out of ten passes on the initial production run. Two feeds returned nothing. One was Schneier, which I will come to. The other was NVD.</p>
 <p>Fixing NVD required rewriting how the aggregator talks to that source entirely. NIST had replaced the RSS export with a REST API, which is a different kind of interface entirely. An RSS feed is a file you download. A REST API is a service you query with parameters, and it responds with the specific records matching your query, formatted as JSON.</p>
 <p>The NVD 2.0 API has an additional wrinkle. It orders results by publication date, oldest first, and does not accept a parameter asking it to reverse that order. This means the newest vulnerabilities sit at the end of the response list. To get the most recent CVEs without downloading the entire catalog, I had to make two requests per pass: one that asks for a single result to learn how many records exist in the time window, and another that pages directly to the last set of that window.</p>
@@ -73,14 +73,14 @@
 <h2>What I did not get right the first time</h2>
 <p>The first production run of the fetcher retrieved eight out of ten feeds. NVD and Schneier both failed. I knew about both failures within minutes because the fetcher logs every error and exits cleanly, but the logs from a systemd oneshot service require someone to go looking for them.</p>
 <p>What I did not have when those failures appeared was an alert. The fetcher ran, logged two errors, and exited. Nobody was notified. I only found out because I was watching the first pass manually. If I had not been watching, the news page would have appeared to work while two significant sources produced nothing.</p>
-<p>I still do not have an alert. The fetcher logs clearly. The logs are there. But the system that would tell me something went wrong at three in the morning has not been built yet. A fetcher that fails silently for six hours before the next pass is not a complete monitoring story.</p>
+<p>I still do not have an alert. The fetcher logs clearly, and the logs are there, but the system that would tell me something went wrong at three in the morning has not been built yet. A fetcher that fails silently for six hours before the next pass is not a complete monitoring story.</p>
 <hr>
 <h2>What comes next</h2>
 <p>The ten sources I chose are fixed. The catalog is not editable through any interface. Adding a new source requires a code change, a rebuild, and a redeploy. That is the right constraint for now because it prevents scope creep and keeps the egress surface small, but it is also inflexible in a way that will eventually feel limiting.</p>
 <p>The thing I want to build next is a relevance signal. Right now the news page lists everything from the past seven days in reverse chronological order. A CVE with a CVSS score of 9.8 sits next to a research blog post with no particular urgency, and the page treats them identically. A score or severity field that surfaces critical vulnerabilities to the top of the list would make the page more useful as an operational tool rather than a reading list.</p>
 <p>The longer version of that idea is a system that notices patterns across sources. The same CVE often appears in NVD, in the KEV catalog, and in a BleepingComputer article within the same news cycle. Grouping those into a single item with multiple angles would be more useful than three separate entries pointing at the same event from different perspectives.</p>
-<p>The through line I want to preserve from the zero-trust server is still the right one here: every constraint is a decision, every decision has a reason, and the reasons are written down. The no-redirect rule, the domain allowlist, the separate body budget for the KEV catalog, the read-only store, all of it traces back to a specific choice made for a specific reason. When something breaks, that record is what makes the diagnosis possible.</p>
-<p>The news page is on <a href="https://mhebert.dev/news">mhebert.dev/news</a>. You already solved a SHA-256 challenge to get this far. That is what makes it worth reading.</p>
+<p>What I want to keep from the zero-trust server, tentatively, is the habit of writing down why each constraint exists. Every constraint is a decision, every decision has a reason, and the reasons are written down. The no-redirect rule, the domain allowlist, the separate body budget for the KEV catalog, the read-only store, all of it traces back to a specific choice made for a specific reason. When something breaks, that record is what makes the diagnosis possible.</p>
+<p>The news page is on <a href="https://mhebert.dev/news">mhebert.dev/news</a>. You already solved a SHA-256 challenge to get this far.</p>
         </div>
     </main>
 
