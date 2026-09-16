@@ -27,10 +27,153 @@
 
     <main>
         <h1 class="page-title">Reading the Incident Reports: Five ICS Attacks That Defined the Field</h1>
-        <p class="muted">This article is in progress. Check back or follow on Substack for the published version.</p>
-
-        <h2 class="rule">companion project</h2>
-        <p class="muted">A kill chain table mapping five ICS incidents to MITRE ATT&amp;CK for ICS. <a href="https://github.com/mhebert-security/ics-incident-attck">github.com/mhebert-security/ics-incident-attck</a></p>
+        <p class="muted"><strong>Published:</strong> <time datetime="2026-09-16">2026-09-16</time> · <strong>Module:</strong> Module 1: The Mental Model · <strong>Code:</strong> <a href="https://github.com/mhebert-security/ics-incident-attck">github.com/mhebert-security/ics-incident-attck</a></p>
+        <div class="writeup">
+<hr>
+<p>Every security team I have worked with organizes its work around a list of vulnerabilities. Patch the criticals. Triage the highs. Watch the mediums. This is a reasonable way to run an IT program. It is close to useless as a way to understand how attacks against industrial control systems, meaning ICS, the computers and networks that run physical plants and utilities, actually happen.</p>
+<p>Here is the test. Take the five incidents that the ICS security field points to as its canon. Natanz. The Kyiv substations. Petro Rabigh. Oldsmar. Colonial. Ask what CVE, meaning Common Vulnerabilities and Exposures, the public identifiers assigned to known security flaws, each one ran on. For four of the five, the answer is none. For the fifth, which is Stuxnet, the CVEs sit on the wrong side of the attack, on the Windows machines in front of the payload rather than in the payload itself. The part of Stuxnet that damaged centrifuges was written in legitimate Siemens engineering protocol with no vulnerability anywhere in it.</p>
+<p>That is not a rhetorical flourish. It is a description of the terrain, and it has consequences for how a program should be shaped. The CVE is the unit of work in IT security. In OT it is a small fraction of the work, and it is not the fraction that determines whether an incident happens.</p>
+<p>What follows puts that claim under load. Five incidents. Each one broken into the techniques of the MITRE ATT&amp;CK for ICS framework. Then each technique checked against the CVE list. Where a CVE exists, named. Where it does not, said so plainly. By the end, the map has the CVEs marked on it, and what becomes obvious is how little of the map they cover.</p>
+<hr>
+<h2>What the Framework Actually Is</h2>
+<p>A brief orientation, because the IDs are going to be doing a lot of work.</p>
+<p>MITRE ATT&amp;CK for ICS is a catalogue of tactics and techniques observed in attacks against industrial control systems. A tactic is a goal. A technique is a way of achieving it. Where enterprise ATT&amp;CK has fourteen tactics, ICS has twelve. The overlap is real. Initial Access, Execution, Persistence, Privilege Escalation, Evasion, Discovery, Lateral Movement, Collection, Command and Control are all there.</p>
+<p>What ICS adds, and what makes it a separate framework rather than extra columns on the enterprise version, is the last three tactics.</p>
+<p><strong>Inhibit Response Function.</strong> Techniques that stop the process from being controlled or observed. Denial of View. Denial of Service. Device Restart. Modify Control Logic. This sits between the attacker getting access and the attacker using it, and it exists because the defender in an industrial environment is a physical process, not a user holding a copy of the data.</p>
+<p><strong>Impair Process Control.</strong> Techniques that directly affect the physical process. Unauthorized Command Message. Modify Parameter. Manipulation of Control. Manipulation of View. Brute Force I/O.</p>
+<p><strong>Impact.</strong> The physical outcome. Loss of Control. Loss of Availability. Loss of Safety. Damage to Property.</p>
+<p>Those three tactics are why the framework exists. A reader coming from enterprise security will find everything up to Lateral Movement familiar. Everything after it will describe an attack category they have never had to think about.</p>
+<p>And here is the thing about those tactics. They are almost entirely uncoded. There is no CVE for Manipulation of View. There is no CVE for Loss of Safety. The techniques exist as observed behaviors rather than as specific exploitable flaws, because the flaws they depend on are architectural. The protocol has no authentication. The network segment was never drawn. The operator's display trusts the controller. Those are design decisions, not bugs.</p>
+<p>I will come back to this. First, I want to teach the method on a case where the CVE is clean.</p>
+<hr>
+<h2>A Worked Example from the Bedside</h2>
+<p>Module 1, Article 1 introduced three CVEs.</p>
+<p><strong>CVE-2021-33885</strong>, the B. Braun Infusomat Space, reachable through a communication module called SpaceCom. CVSS 9.8. Anyone on the hospital network can send a command to change the drug rate, the concentration, or the total volume delivered. There is no login prompt.</p>
+<p><strong>CVE-2019-10959</strong>, the BD Alaris Gateway Workstation, the device that manages a bank of pumps. CVSS 10.0. Anyone on the network can install firmware on the gateway without authenticating. Every pump the gateway manages is then under attacker control.</p>
+<p><strong>CVE-2015-3459</strong>, the Hospira LifeCare PCA Infusion System, designed on the assumption that it would never be on a network and therefore does not authenticate network commands. CVSS 10.0. The FDA told hospitals to stop using it rather than patch it.</p>
+<p>Three CVEs, three vendors, three different eras of medical device engineering. Now map each one to the technique it enables.</p>
+<p>CVE-2021-33885 is the technique called <strong>T0855, Unauthorized Command Message</strong>. The attacker sends a control command to a device that accepts it without authentication. That is the whole of the technique.</p>
+<p>CVE-2019-10959 is the technique called <strong>T0839, Module Firmware</strong>. The attacker installs new firmware on a controller without authorization, and the firmware persists and executes on the device.</p>
+<p>CVE-2015-3459 is also <strong>T0855</strong>, with a secondary mapping to <strong>T0836, Modify Parameter</strong>, which is what the command changes once it lands.</p>
+<p>Three CVEs. Two techniques. Now the observation that reframes everything that comes after.</p>
+<p>T0855 Unauthorized Command Message is the same technique the Industroyer malware used to open circuit breakers in a Kyiv substation in 2016. The Industroyer modules spoke IEC 60870-5-104, IEC 60870-5-101, and IEC 61850 directly. They did not exploit a vulnerability. They sent well formed protocol messages to devices that accepted them, because the protocol has no authentication and the device has no way to check who sent the message.</p>
+<p>T0839 Module Firmware is the same technique TRITON used to install its payload on the Triconex safety controllers at a Saudi petrochemical facility in 2017, and the same technique Stuxnet used to install its rootkit on the Siemens S7 controllers at Natanz in 2010.</p>
+<p>So the B. Braun pump and the Kyiv breaker are the same problem at different scales. The pump is a device on a hospital network that accepts control commands from anyone. The breaker is a device on a utility network that accepts control commands from anyone. Both were built that way, and the design decision was reasonable at the time it was made.</p>
+<p>In both cases, the CVSS score attaches only to the pump. The breaker has no CVE. There is nothing to assign a CVE to. Industroyer was not exploiting a flaw in IEC 60870-5-104. It was using IEC 60870-5-104, as designed.</p>
+<p>That distinction is the article in miniature. Now apply it, incident by incident.</p>
+<hr>
+<h2>1. Stuxnet, 2010</h2>
+<p>Stuxnet is the exception in every way, which is why it comes first.</p>
+<p><strong>CVEs used: five.</strong></p>
+<p><strong>CVE-2010-2568</strong>, published as Microsoft Security Bulletin MS10-046. A Windows shortcut vulnerability that let Stuxnet execute code when a user opened a folder on an infected removable drive. This is how the USB drives at Natanz delivered their payload.</p>
+<p><strong>CVE-2010-2729</strong>, MS10-061. An impersonation vulnerability in the Windows Print Spooler that gave Stuxnet a way to move laterally on a network even with limited credentials.</p>
+<p><strong>CVE-2010-2743</strong>, MS10-092. A Task Scheduler vulnerability that let Stuxnet escalate to system privileges on an infected Windows machine.</p>
+<p><strong>CVE-2010-2772</strong>. A hardcoded database password in Siemens SIMATIC WinCC, the engineering software that manages the S7 controllers. This is the CVE that let Stuxnet read and write to the WinCC SQL database, which is how it extracted credentials and staged its payload for delivery to the PLCs.</p>
+<p><strong>MS08-067</strong>, patched two years before Stuxnet was discovered but still widely unpatched in the field. A Server service RPC vulnerability Stuxnet used for spreading across local networks.</p>
+<p>Five CVEs. Four of them zero days at the time. Which is what a nation state development program can produce, and why people say Stuxnet cost millions of dollars and required a team of dozens.</p>
+<p>Now look at what Stuxnet did that has no CVE.</p>
+<p><strong>T0847, Replication Through Removable Media.</strong> The delivery. USB drives carried physically into Natanz. CVE-2010-2568 is what allowed the drive to execute its payload once it was plugged in, but the mechanism of delivery is a physical act. No number for it.</p>
+<p><strong>T0851, Rootkit.</strong> The PLC rootkit Stuxnet installed on the Siemens controllers, hiding malicious code from the legitimate engineering software. No CVE. The controller accepted the rootkit because the Siemens programming protocol has no authentication, and the controller's memory could be modified by anyone who could speak to it.</p>
+<p><strong>T0839, Module Firmware.</strong> Installing the malicious logic block on the PLC. No CVE. The write function of the Siemens S7 protocol accepted the new ladder logic because it accepted anything from an authenticated engineering session, and the authentication was a shared secret Stuxnet had extracted from the WinCC database on the engineering workstation.</p>
+<p><strong>T0855, Unauthorized Command Message.</strong> The command to change the frequency converter speeds. This is what the attack was for. No CVE. The command is a legitimate Modbus or Profibus command that the drive executed, because it came from the controller, and the controller was trusted.</p>
+<p><strong>T0832, Manipulation of View.</strong> Stuxnet recorded normal sensor readings over a period, and then, while it spun the centrifuges faster than the operators thought, it replayed the recordings back to the monitoring system. The operators saw a healthy process. No CVE for replaying sensor data. No patch for the assumption that a controller's outputs can be trusted.</p>
+<p><strong>T0879, Damage to Property.</strong> The physical outcome. Not a vulnerability. Not a CVE. A mechanical result of stresses the centrifuges were not designed for.</p>
+<p>Read those two lists against each other. The CVEs are all on the Windows side of the attack. Air gap crossing, credential extraction, privilege escalation, lateral movement on enterprise machines. Every one is a real vulnerability, every one mattered, and every one would have been patched had the vendor known. Meanwhile the payload itself, the part that actually damaged centrifuges, runs on the Siemens protocol as designed. There is nothing to patch.</p>
+<p>If Stuxnet had landed on a fully patched Windows network, it would have been stopped. If it had landed on a fully patched Windows network that happened to have the Siemens S7 controllers connected, and if the engineers at Natanz had carried a USB drive into the air gapped network anyway, and if the malware had smuggled itself past the patch management, then it would have reached the PLCs and no CVE would have mattered, because there was no CVE to matter.</p>
+<p>That is the shape of the four incidents that follow. Stuxnet is unusual because it is the one that has CVEs at all.</p>
+<hr>
+<h2>2. Ukraine, December 23, 2015</h2>
+<p><strong>CVEs used: none.</strong></p>
+<p>The first confirmed cyber induced power outage has no CVE associated with it.</p>
+<p>Initial access was a spear phishing email carrying a malicious document, built around a theme that would plausibly interest utility staff. The document installed BlackEnergy, a malware family observed in the wild since 2007, repurposed for the attack. No zero day. No unpatched criticals. Office macros in a way that Office is designed to allow, combined with a user enabling them.</p>
+<p>From the foothold the attackers harvested credentials. They moved laterally with valid accounts that had the access they needed. They reached the SCADA network over the utilities' own remote access infrastructure, using credentials that were supposed to work.</p>
+<p>Then they opened circuit breakers using the operator's own human machine interfaces. No CVE required. They had valid accounts, they had HMI access, and the HMI was connected to the same network as the SCADA system.</p>
+<p>The response function work is what most of the CVEs would have had to cover for a patch program to have stopped this:</p>
+<p><strong>T0815, Denial of View.</strong> Operators' workstations wiped with a disk wiping tool so they lost the ability to see or command the system while the outage was in progress.</p>
+<p><strong>T0814, Denial of Service.</strong> A telephone denial of service attack against the utilities' customer service call centers, so customers losing power could not call to report it.</p>
+<p><strong>T0816, Device Restart/Shutdown.</strong> Uninterruptible power supplies at the control centers damaged and destroyed, so the control rooms themselves went dark.</p>
+<p>Now the techniques across the incident, with what a CVE would even mean in each case:</p>
+<p><strong>T0865, Spearphishing Attachment.</strong> An email. No vulnerability.</p>
+<p><strong>T0863, User Execution.</strong> A user opening a document. No vulnerability.</p>
+<p><strong>T0859, Valid Accounts.</strong> Credentials that were supposed to exist. No vulnerability.</p>
+<p><strong>T0886, Remote Services.</strong> The remote access solution was designed to provide exactly this access. No vulnerability.</p>
+<p><strong>T0855, Unauthorized Command Message.</strong> The SCADA protocol executes commands from any authenticated session. No vulnerability.</p>
+<p><strong>T0815, Denial of View.</strong> A wiper on a workstation with write access. No vulnerability.</p>
+<p><strong>T0814, Denial of Service.</strong> A telephone. No vulnerability.</p>
+<p><strong>T0816, Device Restart/Shutdown.</strong> Physical destruction of hardware. No vulnerability.</p>
+<p>Zero CVEs. Every technique in the incident is either an operational failure or a physical fact. A phone can be made to ring. A UPS can be destroyed.</p>
+<p>If you build a security program around CVE management and nothing else, this attack passes through without touching a single thing your program was looking for.</p>
+<hr>
+<h2>3. TRITON, 2017</h2>
+<p>TRITON is where the CVE picture gets interesting, because the CVEs exist but they are not what the attacker used.</p>
+<p>The group tracked as XENOTIME by one firm and TEMP.Veles by another targeted a petrochemical facility, widely reported to be the Petro Rabigh complex in Saudi Arabia. Months in the corporate network. Lateral movement into OT. An engineering workstation that could program the Triconex safety instrumented system. A payload written to run on the safety controllers themselves.</p>
+<p>TRITON is the first publicly known attack against a safety instrumented system. The SIS is the last line of defense. It has physical independence from the control system engineered into it, validated by a functional safety assessment that assigned the loop a Safety Integrity Level. Attacking it is not attacking the process. It is attacking the thing that keeps the process from killing people when the control system fails. There was no framework, no mental model, no incident to point at before TRITON that made this a category. After TRITON, T0880 Loss of Safety had to be added to the ICS ATT&amp;CK matrix, because destroying the safety system was not previously a recognized technique.</p>
+<p>Schneider Electric, which makes the Triconex line, published a set of CVEs through ICS-CERT in late 2017 and early 2018, in the CVE-2017-14013 series. They cover unauthenticated firmware modification, unauthenticated project download, information exposure, and denial of service on the Triconex controllers.</p>
+<p>What the attacker actually used was not those CVEs.</p>
+<p>The attack chain as reported does not rely on exploiting a Triconex vulnerability. It relies on the fact that the TriStation protocol, which is what Schneider Electric's engineering software uses to talk to the controllers, has no authentication. TriStation runs over port 1502 and accepts commands from any source that can reach it. The TRITON framework that ran on the engineering workstation spoke TriStation directly. It told the controllers to accept new firmware. The controllers did.</p>
+<p>There is one more detail worth sitting with. The Triconex controllers have a physical keyswitch. To load new firmware, an engineer is supposed to walk to the cabinet and physically turn the key to Program mode. At the affected facility, the keyswitch was left in Program mode. There is no CVE for that. There is a reason it was left that way, and the reason is operational. The control cabinets were inconvenient for engineers to reach, and the alternative to leaving the key turned was a truck roll every time firmware needed updating.</p>
+<p>The vulnerability list and the attack chain overlap in effect but not in cause. A defender at Petro Rabigh running a perfect CVE management program, identifying the whole CVE-2017-14013 series and patching every one, would still have been compromised. The path the attacker used was the protocol's designed behavior, protected by a keyswitch left in the wrong position, on an engineering workstation the attacker could already reach.</p>
+<p>That is not an argument against patching. It is an argument for understanding that a CVE describes a narrow class of failure, and that most of TRITON is not in that class.</p>
+<hr>
+<h2>4. Oldsmar, 2021</h2>
+<p><strong>CVEs used: none.</strong></p>
+<p>Not every ICS incident is a nation state operation, and not every incident needs to be one to be instructive.</p>
+<p>On February 5, 2021, at a water treatment plant in Oldsmar, Florida, an operator watched his mouse cursor move across the screen on its own. Someone was inside the HMI. He watched the intruder navigate to the sodium hydroxide control and increase the concentration from the normal setting of 100 parts per million to 11,100 parts per million. Sodium hydroxide is lye. At that concentration the drinking water supply for the surrounding area would have been caustic enough to cause burns.</p>
+<p>The operator reduced it back. The incident lasted minutes.</p>
+<p>The plant used TeamViewer for remote access. The credentials were shared. The HMI was running Windows 7, well past end of life. The system was reachable from the internet, directly. No VPN. No MFA. A password shared more widely than it should have been.</p>
+<p><strong>T0883, Internet Accessible Device.</strong> A design choice. No CVE.</p>
+<p><strong>T0822, External Remote Services.</strong> TeamViewer is a legitimate product. No CVE.</p>
+<p><strong>T0823, Graphical User Interface.</strong> The attacker used the same interface a legitimate operator would have used. No CVE.</p>
+<p><strong>T0836, Modify Parameter.</strong> The HMI accepted the parameter change because the person at the keyboard was authenticated. No CVE.</p>
+<p><strong>T0831, Manipulation of Control.</strong> The process started moving toward the new setpoint. No CVE.</p>
+<p>Zero CVEs. Every technique in the incident is a configuration or credential issue with an operational fix and no vulnerability identifier.</p>
+<p>This is the incident I would put in front of a small utility that thinks it is not a target. It is not about sophistication. It is about the fact that there was an internet reachable HMI with a shared password on an unsupported operating system, and that a person with nothing more than that password could have killed people by pressing a button. The CVE framework does not describe that. The technique framework does.</p>
+<hr>
+<h2>5. Colonial Pipeline, 2021</h2>
+<p><strong>CVEs used: none.</strong></p>
+<p>Colonial is the incident that does not belong in this list, and is in the list anyway, because of what it taught the field.</p>
+<p>The chain is short. DarkSide, a ransomware operation assessed by the FBI to be based in Russia, gained access to Colonial Pipeline's business network by logging into a VPN account. The account belonged to an employee who had left the company. The password had been reused somewhere else that had been breached. There was no multi factor authentication on the VPN.</p>
+<p><strong>T0859, Valid Accounts.</strong> That is the whole technique layer. Everything else is standard ransomware behavior that enterprise ATT&amp;CK describes better than the ICS framework does.</p>
+<p>Nothing in the OT network was under attacker control. No PLC was commanded. No valve was opened or closed. Nothing crossed the line between enterprise and control, because in this incident there was nothing to cross. The attacker never went there.</p>
+<p>Colonial made a decision to stop operations because they could not be certain the compromise had not spread into OT, and continuing to move 2.5 million barrels a day of refined fuel while that uncertainty existed carried a physical risk they were not willing to accept. The pipeline stayed shut for six days. The Department of Transportation issued an emergency declaration. Seventeen states were affected.</p>
+<p>The CVE mapping for Colonial Pipeline is empty at every level because the incident rests on a valid credential that never should have been valid. No vulnerability on the VPN appliance. No CVE for the password reuse. No CVE for the lack of MFA. Those are control failures, and they were sufficient to produce six days of fuel shortage across the southeastern United States.</p>
+<p>If you are an OT operator, the lesson is that your IT department can shut down your plant from a laptop without ever touching your network, because the decision to stop is a business decision you will not be in the room for.</p>
+<p>If you are an IT security team, the lesson is that the vulnerability list that mattered did not include a single vulnerability. The password reuse, the orphan account, the missing MFA were all things you would have caught if you were looking at identity instead of at code.</p>
+<hr>
+<h2>Reading the Map with the CVEs Marked</h2>
+<p>Across the five incidents, in the techniques that actually caused the physical or business outcome, the technique to CVE mapping runs like this. Stuxnet maps to five CVEs, all in the Windows and Siemens engineering software layer, none in the PLC protocol or the payload. Ukraine 2015 maps to zero CVEs. TRITON maps to zero CVEs in the attack path, and a set of CVEs that describe related but unused vulnerabilities. Oldsmar maps to zero CVEs. Colonial maps to zero CVEs.</p>
+<p>Take the specific techniques that recur:</p>
+<p><strong>T0855, Unauthorized Command Message.</strong> No CVE exists for the technique. The B. Braun pump has a CVE that enables it, but the protocol based version, which is what Ukraine, Stuxnet, and Industroyer used, has none.</p>
+<p><strong>T0859, Valid Accounts.</strong> No CVE. Colonial and Ukraine 2015 are the unpatched version of this.</p>
+<p><strong>T0839, Module Firmware.</strong> One CVE, the BD Alaris case, and only because a researcher wrote it up. TRITON and Stuxnet reach the technique without any CVE.</p>
+<p><strong>T0836, Modify Parameter.</strong> No CVE for the technique.</p>
+<p><strong>T0832, Manipulation of View.</strong> No CVE and no realistic CVE. The technique depends on the operator trusting the device's output, which is not a bug.</p>
+<p><strong>T0815, Denial of View.</strong> No CVE. A wiper on a workstation is not exploiting a vulnerability.</p>
+<p><strong>T0823, Graphical User Interface.</strong> No CVE. The attacker used the actual GUI, as intended.</p>
+<p><strong>T0880, Loss of Safety.</strong> A technique that exists entirely because of TRITON, with no CVE at all.</p>
+<p><strong>T0883, Internet Accessible Device.</strong> No CVE for the technique. The device being on the internet is a configuration.</p>
+<p>The CVEs cluster in a narrow band of the matrix. They live in the operating system and application layer, in the general purpose IT infrastructure on which ICS depends, in credential handling and privilege escalation on Windows machines that happen to sit next to a PLC. They do not live in the ICS protocol layer, in the identity layer, or in the process physics the ICS is controlling.</p>
+<hr>
+<h2>What This Means for a Security Program</h2>
+<p>Three things a security program in an OT environment should take from this.</p>
+<p><strong>CVE management is necessary but not sufficient.</strong> Do it. Patch the criticals on your enterprise network, patch them on machines adjacent to your OT network, patch what you can on the OT network itself. But if the entire program is a patching program, it does not address the five incidents in this piece. Stuxnet's payload, Ukraine's valid accounts, TRITON's keyswitch, Oldsmar's shared password, Colonial's orphaned VPN account. None of those live in the CVE layer.</p>
+<p><strong>The identity layer is the primary defense in OT, because the protocol layer has no defense at all.</strong> T0859 Valid Accounts shows up in two of five incidents. T0855 Unauthorized Command Message shows up in three. Neither has a CVE. Both have a control, which is reachability. The question to ask is not whether your PLC is patched. It is who can reach your PLC, over what path, with what credentials, and how you would know if that changed.</p>
+<p><strong>Monitoring is not just detection. It is the primary control for the response layer.</strong> In three of these five incidents, the attacker acted on the response function before acting on the process. Wipes, denial of service, UPS destruction, phone attacks. There is no CVE that stops those. There is a data source, at the network or endpoint layer, that would have signaled them. Without that visibility, you find out about them when the process stops, which is when you need them most.</p>
+<hr>
+<h2>What I Did Not Solve</h2>
+<p>I am not certain which CVEs matter most relative to which techniques. Take CVE-2019-10959, the BD Alaris firmware install. Real vulnerability, real severity. It is also the same technique, T0839 Module Firmware, that TRITON and Stuxnet used without a CVE. Which is the higher priority does not have a general answer, because it depends entirely on the reachability of the specific devices in your environment.</p>
+<p>I am not confident in every ATT&amp;CK for ICS technique ID in this piece. The ones I would audit against attack.mitre.org/matrices/ics before publishing: Data Destruction, Activate Firmware Update Mode, Project File Infection, and the exact sub technique IDs in the Stuxnet section.</p>
+<p>I do not have a clean account of how Colonial fits. The framework was designed to describe attacks on industrial processes. Colonial is not an attack on an industrial process. It is an attack on a business process that has an industrial process behind it. A future version of this article should either align Colonial more carefully or swap in Industroyer, which has better technique coverage.</p>
+<hr>
+<h2>What Comes Next</h2>
+<p>Modbus. The protocol was designed in 1979 with no authentication and no encryption, and it still runs a substantial fraction of the world's industrial infrastructure. I will look at it at the wire level, read a packet capture, and write the first unauthorized command, on my own machine, against a target I set up for the purpose.</p>
+<p>If you are reading along and working in a hospital or a utility, I want to hear which of the five incidents above feels closest to your environment, and which techniques in it you would actually be able to detect. Not which ones you have a control for on paper. Which ones would produce an alert on a screen.</p>
+<p>That answer, for most people, is shorter than they expect. It is the most useful starting point for a security program I know of.</p>
+<hr>
+<h2>Companion Project</h2>
+<p>ATT&amp;CK for ICS technique matrix mapped to all five incidents: <a href="https://github.com/mhebert-security/ics-incident-attck">github.com/mhebert-security/ics-incident-attck</a></p>
+<p><strong>Code:</strong> <a href="https://github.com/mhebert-security/ics-incident-attck">github.com/mhebert-security/ics-incident-attck</a></p>
+        </div>
 
         <p class="faint">Back to <a href="/ot-learning/module-1-mental-model/">The Mental Model</a> or the <a href="/ot-learning/">series index</a>.</p>
     </main>
