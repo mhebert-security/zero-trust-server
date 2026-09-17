@@ -514,3 +514,37 @@ h2.rule::after {
     border-top: 1px solid var(--border);
     margin: 2rem 0;
 }
+
+/* Data tables inside a writeup (the ICS ATT&CK companion page). The wrapper
+   scrolls horizontally on narrow screens; the table itself collapses borders
+   and keeps the header quiet. Nothing here needs an inline style. */
+.writeup .tablewrap {
+    overflow-x: auto;
+    margin: 0 0 1.1rem;
+    -webkit-overflow-scrolling: touch;
+}
+
+.writeup table {
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    min-width: 100%;
+}
+
+.writeup th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--fg-muted);
+    border-bottom: 1px solid var(--border);
+    padding: 0.4rem 0.7rem 0.4rem 0;
+    white-space: nowrap;
+}
+
+.writeup td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.4rem 0.7rem 0.4rem 0;
+    vertical-align: top;
+}
+
+.writeup tr:last-child td {
+    border-bottom: none;
+}

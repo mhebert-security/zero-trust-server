@@ -55,7 +55,7 @@ pub fn writing_article(path: &str) -> Response {
 }
 
 /// Serve an OT/ICS learning page under /ot-learning/.
-/// The series index, six module indexes, and twelve article placeholders are
+/// The series index, five module indexes, and eleven article placeholders are
 /// static HTML documents embedded at compile time. Each known path is an
 /// explicit arm here; an unknown path (a typo, a traversal attempt, a stray
 /// slash) falls through to the shared 404, exactly like any other miss.
@@ -74,6 +74,9 @@ pub fn ot_learning(path: &str) -> Response {
         }
         "module-1-mental-model/article-2-incident-reports.html" => {
             include_str!("../../static/ot-learning/module-1-mental-model/article-2-incident-reports.html")
+        }
+        "module-1-mental-model/ics-incident-attck.html" => {
+            include_str!("../../static/ot-learning/module-1-mental-model/ics-incident-attck.html")
         }
 
         "module-2-protocols/" | "module-2-protocols/index.html" => {
@@ -117,13 +120,6 @@ pub fn ot_learning(path: &str) -> Response {
         }
         "module-5-medical-devices/article-11-dicom-analysis.html" => {
             include_str!("../../static/ot-learning/module-5-medical-devices/article-11-dicom-analysis.html")
-        }
-
-        "module-6-capstone/" | "module-6-capstone/index.html" => {
-            include_str!("../../static/ot-learning/module-6-capstone/index.html")
-        }
-        "module-6-capstone/article-12-lab-architecture.html" => {
-            include_str!("../../static/ot-learning/module-6-capstone/article-12-lab-architecture.html")
         }
 
         _ => return not_found(),
@@ -516,8 +512,8 @@ mod tests {
                 "Why OT Security Is Not Just IT Security with Hard Hats",
             ),
             (
-                "/ot-learning/module-6-capstone/article-12-lab-architecture.html",
-                "Building an OT Detection Lab for Under $100 per Month: Full Architecture Walkthrough",
+                "/ot-learning/module-1-mental-model/ics-incident-attck.html",
+                "ICS Incident ATT&amp;CK Mapping",
             ),
         ];
         for (path, title) in known {

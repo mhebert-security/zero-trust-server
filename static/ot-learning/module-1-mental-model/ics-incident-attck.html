@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matthew Hebert · ICS Incident ATT&amp;CK Mapping</title>
+    <meta name="description" content="A kill chain table mapping five ICS incidents to MITRE ATT&amp;CK for ICS.">
+    <meta property="og:title" content="Matthew Hebert · ICS Incident ATT&amp;CK Mapping">
+    <meta property="og:description" content="A kill chain table mapping five ICS incidents to MITRE ATT&amp;CK for ICS.">
+    <meta property="og:url" content="https://mhebert.dev/ot-learning/module-1-mental-model/ics-incident-attck.html">
+    <link rel="icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+    <header class="page-head">
+        <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+        <nav class="nav" aria-label="Site">
+            <a href="/">index</a>
+            <a href="/projects">projects</a>
+            <a href="/about">about</a>
+            <a href="/writing/">writing</a>
+            <a href="/ot-learning/" aria-current="page">OT/ICS Learning</a>
+            <a href="/news">news</a>
+            <a href="/contact">contact</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">ICS Incident ATT&amp;CK Mapping</h1>
+        <p class="lead">A kill chain table mapping five ICS incidents to MITRE ATT&amp;CK for ICS.</p>
+        <div class="writeup">
+<p>Every technique used in each incident is listed by tactic. A tactic is the attacker's goal, and a technique is a specific way of reaching it. Each row also names the CVE, short for Common Vulnerabilities and Exposures and the public identifier assigned to a known security flaw, that enables the technique where one exists. The CVE column is deliberately empty for most rows. That emptiness is the point of the table.</p>
+<p>This page is a companion to <a href="/ot-learning/module-1-mental-model/article-2-incident-reports.html">Reading the Incident Reports: Five ICS Attacks That Defined the Field</a>, from Module 1, Article 2 of the From Bedside to Substation series.</p>
+<hr>
+<h2>Incidents Covered</h2>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>Incident</th><th>Year</th><th>Target</th><th>Attribution</th></tr>
+</thead>
+<tbody>
+<tr><td>Stuxnet</td><td>2010</td><td>Natanz enrichment facility, Iran</td><td>Assessed US and Israeli operation</td></tr>
+<tr><td>Ukraine grid attack</td><td>2015</td><td>Three regional distribution utilities</td><td>Assessed Russian state actors (Sandworm)</td></tr>
+<tr><td>TRITON</td><td>2017</td><td>Petrochemical facility, Saudi Arabia</td><td>XENOTIME / TEMP.Veles</td></tr>
+<tr><td>Oldsmar</td><td>2021</td><td>Water treatment plant, Florida</td><td>Former employee (DOJ indictment)</td></tr>
+<tr><td>Colonial Pipeline</td><td>2021</td><td>Fuel pipeline, US eastern seaboard</td><td>DarkSide ransomware</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h2>Technique and CVE Mapping</h2>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>Incident</th><th>Tactic</th><th>Technique ID</th><th>Technique</th><th>CVE</th></tr>
+</thead>
+<tbody>
+<tr><td>Stuxnet</td><td>Initial Access</td><td>T0847</td><td>Replication Through Removable Media</td><td>CVE-2010-2568</td></tr>
+<tr><td>Stuxnet</td><td>Lateral Movement</td><td>T0866</td><td>Exploitation of Remote Services</td><td>CVE-2010-2729, MS08-067</td></tr>
+<tr><td>Stuxnet</td><td>Privilege Escalation</td><td>T0890</td><td>Exploitation for Privilege Escalation</td><td>CVE-2010-2743</td></tr>
+<tr><td>Stuxnet</td><td>Evasion</td><td>T0891</td><td>Hardcoded Credentials</td><td>CVE-2010-2772</td></tr>
+<tr><td>Stuxnet</td><td>Persistence</td><td>T0839</td><td>Module Firmware</td><td>none</td></tr>
+<tr><td>Stuxnet</td><td>Evasion</td><td>T0851</td><td>Rootkit</td><td>none</td></tr>
+<tr><td>Stuxnet</td><td>Evasion</td><td>T0849</td><td>Masquerading</td><td>none</td></tr>
+<tr><td>Stuxnet</td><td>Inhibit Response Function</td><td>T0832</td><td>Manipulation of View</td><td>none</td></tr>
+<tr><td>Stuxnet</td><td>Impair Process Control</td><td>T0831</td><td>Manipulation of Control</td><td>none</td></tr>
+<tr><td>Stuxnet</td><td>Impair Process Control</td><td>T0855</td><td>Unauthorized Command Message</td><td>none</td></tr>
+<tr><td>Stuxnet</td><td>Impact</td><td>T0879</td><td>Damage to Property</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Initial Access</td><td>T0865</td><td>Spearphishing Attachment</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Initial Access</td><td>T0886</td><td>Remote Services</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Execution</td><td>T0863</td><td>User Execution</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Lateral Movement</td><td>T0859</td><td>Valid Accounts</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Inhibit Response Function</td><td>T0814</td><td>Denial of Service</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Inhibit Response Function</td><td>T0815</td><td>Denial of View</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Inhibit Response Function</td><td>T0816</td><td>Device Restart/Shutdown</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Impair Process Control</td><td>T0855</td><td>Unauthorized Command Message</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Impact</td><td>T0827</td><td>Loss of Control</td><td>none</td></tr>
+<tr><td>Ukraine 2015</td><td>Impact</td><td>T0826</td><td>Loss of Availability</td><td>none</td></tr>
+<tr><td>TRITON</td><td>Initial Access</td><td>T0865</td><td>Spearphishing Attachment</td><td>none</td></tr>
+<tr><td>TRITON</td><td>Lateral Movement</td><td>T0859</td><td>Valid Accounts</td><td>none</td></tr>
+<tr><td>TRITON</td><td>Execution</td><td>T0871</td><td>Execution through API</td><td>none</td></tr>
+<tr><td>TRITON</td><td>Persistence</td><td>T0889</td><td>Modify Program</td><td>none</td></tr>
+<tr><td>TRITON</td><td>Persistence</td><td>T0839</td><td>Module Firmware</td><td>none</td></tr>
+<tr><td>TRITON</td><td>Evasion</td><td>T0858</td><td>Change Operating Mode</td><td>none</td></tr>
+<tr><td>TRITON</td><td>Inhibit Response Function</td><td>T0833</td><td>Modify Control Logic</td><td>none</td></tr>
+<tr><td>TRITON</td><td>Impact</td><td>T0880</td><td>Loss of Safety</td><td>none</td></tr>
+<tr><td>Oldsmar</td><td>Initial Access</td><td>T0883</td><td>Internet Accessible Device</td><td>none</td></tr>
+<tr><td>Oldsmar</td><td>Initial Access</td><td>T0822</td><td>External Remote Services</td><td>none</td></tr>
+<tr><td>Oldsmar</td><td>Execution</td><td>T0823</td><td>Graphical User Interface</td><td>none</td></tr>
+<tr><td>Oldsmar</td><td>Impair Process Control</td><td>T0836</td><td>Modify Parameter</td><td>none</td></tr>
+<tr><td>Oldsmar</td><td>Impair Process Control</td><td>T0831</td><td>Manipulation of Control</td><td>none</td></tr>
+<tr><td>Colonial 2021</td><td>Initial Access</td><td>T0859</td><td>Valid Accounts</td><td>none</td></tr>
+<tr><td>Colonial 2021</td><td>Impact</td><td>T0826</td><td>Loss of Availability</td><td>none</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h2>What the CVE Column Says</h2>
+<p>Across 37 technique instances, four have a CVE behind them, and all four belong to a single incident, Stuxnet's Windows and Siemens WinCC layer. Every technique the attack used after it reached the PLC, short for programmable logic controller, has no CVE, because the Siemens S7 protocol accepts control commands as designed. For the other four incidents, the CVE column is empty at every row.</p>
+<hr>
+<h2>Related CVEs from the Article</h2>
+<p>These are not part of the incident table because they belong to devices rather than to incident attack chains, but they are the clearest examples of technique to CVE mapping in the series.</p>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>Device</th><th>CVE</th><th>Technique ID</th><th>Technique</th></tr>
+</thead>
+<tbody>
+<tr><td>B. Braun Infusomat Space via SpaceCom</td><td>CVE-2021-33885</td><td>T0855</td><td>Unauthorized Command Message</td></tr>
+<tr><td>BD Alaris Gateway Workstation</td><td>CVE-2019-10959</td><td>T0839</td><td>Module Firmware</td></tr>
+<tr><td>Hospira LifeCare PCA</td><td>CVE-2015-3459</td><td>T0855, T0836</td><td>Unauthorized Command Message, Modify Parameter</td></tr>
+</tbody>
+</table>
+</div>
+<p>The B. Braun mapping (T0855) is the same technique Industroyer used to open breakers in Kyiv. The BD Alaris mapping (T0839) is the same technique Stuxnet and TRITON used on their respective controllers. The CVE exists for the pump. It does not exist for the protocol.</p>
+<hr>
+<h2>Verification Status</h2>
+<p>Technique IDs are written from memory and spot checked. Before this table is cited elsewhere, audit every ID against the ATT&amp;CK for ICS matrix at <a href="https://attack.mitre.org/matrices/ics/">attack.mitre.org/matrices/ics/</a>.</p>
+<p>The CVE-2017-14013 series for the Triconex controllers is not yet reflected as a row. Those CVEs describe vulnerabilities adjacent to the TRITON attack path rather than the path itself, and the table currently records the path. If you want them included, add a secondary section rather than a technique row.</p>
+        </div>
+
+        <p class="faint">Back to <a href="/ot-learning/module-1-mental-model/">The Mental Model</a> or the <a href="/ot-learning/">series index</a>.</p>
+    </main>
+
+    <footer class="page-footer">
+        served by <code>zero-trust-server</code> · HTTP/1.1 from raw sockets · rustls TLS 1.3 · a proof of work gate · <a href="/transparency">what this server records</a>
+    </footer>
+</body>
+</html>
