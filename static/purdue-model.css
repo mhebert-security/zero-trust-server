@@ -1,0 +1,261 @@
+/* static/purdue-model.css — styles for the interactive Purdue Model tool.
+   Loaded alongside style.css on the purdue-model page. Every rule here is
+   scoped under .pm so it never leaks into the site shell. No inline styles
+   anywhere: the page carries a style-src 'self' CSP. */
+
+.pm {
+    --pm-bg: #070c18;
+    --pm-panel: #0d1424;
+    --pm-band: #0a1120;
+    --pm-band-hover: #101a30;
+    --pm-line: #1c2740;
+    --pm-ink: #e6ecf5;
+    --pm-muted: #8a97ad;
+    --pm-accent: #00ff88;
+    --pm-accent-ink: #02170d;
+    --pm-warn: #ffb020;
+    --pm-danger: #ff5f56;
+
+    display: grid;
+    grid-template-columns: minmax(16rem, 1fr) minmax(18rem, 1.4fr);
+    gap: 1rem;
+    margin: 1.5rem 0 1.5rem;
+    background: var(--pm-bg);
+    border: 1px solid var(--pm-line);
+    border-radius: 8px;
+    overflow: hidden;
+    color: var(--pm-ink);
+}
+
+.pm-levels {
+    display: flex;
+    flex-direction: column;
+    padding: 0.75rem;
+    gap: 0.5rem;
+}
+
+.pm-band {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.7rem 0.8rem;
+    background: var(--pm-band);
+    border: 1px solid var(--pm-line);
+    border-left: 3px solid var(--pm-line);
+    border-radius: 4px;
+    color: var(--pm-ink);
+    font: inherit;
+    font-size: 0.95rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pm-band:hover {
+    background: var(--pm-band-hover);
+}
+
+.pm-band:focus-visible {
+    outline: 2px solid var(--pm-accent);
+    outline-offset: 1px;
+}
+
+.pm-band.active {
+    background: var(--pm-band-hover);
+    border-left-color: var(--pm-accent);
+    border-color: var(--pm-line) var(--pm-line) var(--pm-line) var(--pm-accent);
+}
+
+.pm-band .lv {
+    flex: 0 0 auto;
+    min-width: 2.1rem;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--pm-muted);
+    letter-spacing: 0.03em;
+}
+
+.pm-band .nm {
+    display: block;
+    font-weight: 600;
+}
+
+.pm-band .body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.pm-band .tg {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--pm-muted);
+    font-weight: 400;
+    margin-top: 0.1rem;
+}
+
+/* Per-level risk chip — cool toward the top, hot toward the physical floor. */
+.pm-band .dot {
+    flex: 0 0 auto;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: var(--pm-line);
+    margin-left: auto;
+}
+
+.pm-band[data-level="5"] .dot { background: #4a6fa5; }
+.pm-band[data-level="4"] .dot { background: #4a6fa5; }
+.pm-band[data-level="3"] .dot { background: #2f9e9e; }
+.pm-band[data-level="2"] .dot { background: #d4a72c; }
+.pm-band[data-level="1"] .dot { background: #d9772c; }
+.pm-band[data-level="0"] .dot { background: var(--pm-danger); }
+
+.pm-panel {
+    padding: 1rem 1.25rem 1.25rem;
+    background: var(--pm-panel);
+    border-left: 1px solid var(--pm-line);
+    min-height: 22rem;
+}
+
+.pm-panel h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.05rem;
+    color: var(--pm-ink);
+}
+
+.pm-panel .pm-level-label {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--pm-muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin: 0 0 0.75rem;
+}
+
+.pm-panel p {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--pm-ink);
+}
+
+.pm-panel .pm-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--pm-muted);
+    margin: 1rem 0 0.4rem;
+}
+
+.pm-tech {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.pm-tech li {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    font-size: 0.88rem;
+}
+
+.pm-tech .id {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--pm-accent);
+    flex: 0 0 auto;
+    min-width: 3.4rem;
+}
+
+/* Impact bars — a horizontal track with a filled segment per dimension. */
+.pm-impacts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.pm-impact {
+    display: grid;
+    grid-template-columns: 7rem 1fr 1.5rem;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.78rem;
+}
+
+.pm-impact .k {
+    color: var(--pm-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.7rem;
+}
+
+.pm-impact .track {
+    height: 0.5rem;
+    background: var(--pm-band);
+    border: 1px solid var(--pm-line);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.pm-impact .fill {
+    height: 100%;
+    background: var(--pm-accent);
+    border-radius: 2px;
+}
+
+/* Discrete fill widths. CSP (style-src 'self') forbids inline style
+   attributes, so the JavaScript sets a class instead of a width style. */
+.pm-impact .fill.w1 { width: 20%; }
+.pm-impact .fill.w2 { width: 40%; }
+.pm-impact .fill.w3 { width: 60%; }
+.pm-impact .fill.w4 { width: 80%; }
+.pm-impact .fill.w5 { width: 100%; }
+
+.pm-impact.hot .fill { background: var(--pm-warn); }
+.pm-impact.critical .fill { background: var(--pm-danger); }
+
+.pm-impact .v {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--pm-muted);
+    text-align: right;
+}
+
+.pm-clinical {
+    font-size: 0.88rem;
+    color: var(--pm-muted);
+    border-left: 2px solid var(--pm-accent);
+    padding-left: 0.75rem;
+    margin: 0.25rem 0 0;
+}
+
+.pm-foot {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--pm-line);
+    padding: 0.6rem 1.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--pm-muted);
+    letter-spacing: 0.02em;
+    text-align: center;
+}
+
+/* Narrow screens: stack the panel under the bands. */
+@media (max-width: 46rem) {
+    .pm {
+        grid-template-columns: 1fr;
+    }
+
+    .pm-panel {
+        border-left: none;
+        border-top: 1px solid var(--pm-line);
+        min-height: 0;
+    }
+}

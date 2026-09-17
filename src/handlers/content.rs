@@ -78,6 +78,9 @@ pub fn ot_learning(path: &str) -> Response {
         "module-1-mental-model/ics-incident-attck.html" => {
             include_str!("../../static/ot-learning/module-1-mental-model/ics-incident-attck.html")
         }
+        "module-1-mental-model/purdue-model.html" => {
+            include_str!("../../static/ot-learning/module-1-mental-model/purdue-model.html")
+        }
 
         "module-2-protocols/" | "module-2-protocols/index.html" => {
             include_str!("../../static/ot-learning/module-2-protocols/index.html")
@@ -514,6 +517,10 @@ mod tests {
             (
                 "/ot-learning/module-1-mental-model/ics-incident-attck.html",
                 "ICS Incident ATT&amp;CK Mapping",
+            ),
+            (
+                "/ot-learning/module-1-mental-model/purdue-model.html",
+                "Interactive Purdue Model",
             ),
         ];
         for (path, title) in known {

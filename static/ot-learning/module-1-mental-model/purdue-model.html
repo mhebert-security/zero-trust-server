@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matthew Hebert · Interactive Purdue Model</title>
+    <meta name="description" content="An annotated, clickable Purdue Model with the ICS ATT&amp;CK techniques that map to each of the six levels, plus the clinical parallel.">
+    <meta property="og:title" content="Matthew Hebert · Interactive Purdue Model">
+    <meta property="og:description" content="An annotated, clickable Purdue Model with the ICS ATT&amp;CK techniques that map to each of the six levels, plus the clinical parallel.">
+    <meta property="og:url" content="https://mhebert.dev/ot-learning/module-1-mental-model/purdue-model.html">
+    <link rel="icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/purdue-model.css">
+</head>
+<body class="page">
+    <header class="page-head">
+        <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+        <nav class="nav" aria-label="Site">
+            <a href="/">index</a>
+            <a href="/projects">projects</a>
+            <a href="/about">about</a>
+            <a href="/writing/">writing</a>
+            <a href="/ot-learning/" aria-current="page">OT/ICS Learning</a>
+            <a href="/news">news</a>
+            <a href="/contact">contact</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">Interactive Purdue Model</h1>
+        <p class="lead">Six levels, from the internet at the top to the physical process at the bottom. Click a level to see what lives there, the ICS ATT&amp;CK techniques that map to it, and the clinical parallel.</p>
+
+        <div class="pm" id="purdue-model">
+            <div class="pm-levels">
+                <button class="pm-band" type="button" data-level="5">
+                    <span class="lv">L5</span>
+                    <span class="body"><span class="nm">Enterprise / External</span><span class="tg">Internet, cloud, remote access</span></span>
+                    <span class="dot"></span>
+                </button>
+                <button class="pm-band" type="button" data-level="4">
+                    <span class="lv">L4</span>
+                    <span class="body"><span class="nm">Enterprise IT</span><span class="tg">Corporate email, ERP, finance</span></span>
+                    <span class="dot"></span>
+                </button>
+                <button class="pm-band" type="button" data-level="3">
+                    <span class="lv">L3</span>
+                    <span class="body"><span class="nm">Site Operations</span><span class="tg">Historians, SCADA servers, engineering</span></span>
+                    <span class="dot"></span>
+                </button>
+                <button class="pm-band" type="button" data-level="2">
+                    <span class="lv">L2</span>
+                    <span class="body"><span class="nm">Supervisory Control</span><span class="tg">HMIs and local SCADA</span></span>
+                    <span class="dot"></span>
+                </button>
+                <button class="pm-band" type="button" data-level="1">
+                    <span class="lv">L1</span>
+                    <span class="body"><span class="nm">Basic Control</span><span class="tg">PLCs running one program</span></span>
+                    <span class="dot"></span>
+                </button>
+                <button class="pm-band" type="button" data-level="0">
+                    <span class="lv">L0</span>
+                    <span class="body"><span class="nm">Physical Process</span><span class="tg">Sensors, actuators, valves, motors, pumps</span></span>
+                    <span class="dot"></span>
+                </button>
+            </div>
+
+            <div class="pm-panel" id="pm-panel" aria-live="polite"></div>
+
+            <p class="pm-foot">Matthew Hébert · mhebert.dev · ICS/OT Learning Series — Module 1</p>
+        </div>
+
+        <p class="faint">Back to <a href="/ot-learning/module-1-mental-model/">The Mental Model</a> or the <a href="/ot-learning/">series index</a>.</p>
+    </main>
+
+    <footer class="page-footer">
+        served by <code>zero-trust-server</code> · HTTP/1.1 from raw sockets · rustls TLS 1.3 · a proof of work gate · <a href="/transparency">what this server records</a>
+    </footer>
+
+    <script src="/static/purdue-model.js" defer></script>
+</body>
+</html>
