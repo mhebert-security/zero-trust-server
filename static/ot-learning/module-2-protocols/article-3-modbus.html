@@ -54,13 +54,33 @@
 <p>Modbus TCP is a protocol data unit with a seven byte header in front of it. The header is called the MBAP header, which stands for Modbus Application Protocol. It contains a two byte Transaction ID, a two byte Protocol ID that is always zero for Modbus, a two byte Length field, and a one byte Unit ID that in a TCP gateway scenario routes the request to a slave behind the gateway.</p>
 <p>Then the PDU itself: a one byte function code, followed by the data for that function.</p>
 <p>Here is the exact byte sequence that a client sends when it tells a server to energize coil number 5. The transaction ID is 1, the unit ID is 1, and the coil is being written with value FF00, which is the Modbus encoding for ON:</p>
-<pre><code>00 01    Transaction ID
-00 00    Protocol ID
-00 06    Length
-01       Unit ID
-05       Function code, Write Single Coil
-00 05    Output address, coil 5
-FF 00    Output value, ON</code></pre>
+<div class="tablewrap">
+<table class="hexdump">
+    <thead>
+        <tr>
+            <th scope="col">offset</th>
+            <th>00</th><th>01</th><th>02</th><th>03</th><th>04</th><th>05</th><th>06</th><th>07</th><th>08</th><th>09</th><th>0A</th><th>0B</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <th scope="row">bytes</th>
+            <td>00</td><td>01</td><td>00</td><td>00</td><td>00</td><td>06</td><td>01</td><td>05</td><td>00</td><td>05</td><td>FF</td><td>00</td>
+        </tr>
+        <tr>
+            <th scope="row">field</th>
+            <td colspan="2">Transaction ID</td>
+            <td colspan="2">Protocol ID</td>
+            <td colspan="2">Length</td>
+            <td>Unit ID</td>
+            <td>Function code</td>
+            <td colspan="2">Output address</td>
+            <td colspan="2">Output value</td>
+        </tr>
+    </tbody>
+</table>
+</div>
+<p><a href="https://raw.githubusercontent.com/mhebert-security/modbus-lab/main/captures/attack.pcap">download captures/attack.pcap</a></p>
 <p>Twelve bytes. Read that sequence and notice what is missing. There is no field that carries a username. There is no field that carries a password. There is no field that carries a signature or any indication of who sent the packet. The bytes on the wire are the request, and the request is the entire message.</p>
 <p>The response, if the write succeeds, is the same twelve bytes echoed back.</p>
 <pre><code>00 01 00 00 00 06 01 05 00 05 FF 00</code></pre>

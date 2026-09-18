@@ -548,3 +548,19 @@ h2.rule::after {
 .writeup tr:last-child td {
     border-bottom: none;
 }
+
+/* A hex dump table: byte offsets across the top, the raw bytes beneath them,
+   and field annotations on the row below. Monospace and centered so the bytes
+   line up the way a hex dump should. */
+.writeup table.hexdump {
+    min-width: 0;
+    width: auto;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.writeup table.hexdump th,
+.writeup table.hexdump td {
+    text-align: center;
+    white-space: nowrap;
+}
