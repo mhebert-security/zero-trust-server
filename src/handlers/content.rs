@@ -88,8 +88,8 @@ pub fn ot_learning(path: &str) -> Response {
         "module-2-protocols/article-3-modbus.html" => {
             include_str!("../../static/ot-learning/module-2-protocols/article-3-modbus.html")
         }
-        "module-2-protocols/article-4-ethernetip.html" => {
-            include_str!("../../static/ot-learning/module-2-protocols/article-4-ethernetip.html")
+        "module-2-protocols/article-2-ethernetip.html" => {
+            include_str!("../../static/ot-learning/module-2-protocols/article-2-ethernetip.html")
         }
         "module-2-protocols/article-5-dnp3-iec61850.html" => {
             include_str!("../../static/ot-learning/module-2-protocols/article-5-dnp3-iec61850.html")

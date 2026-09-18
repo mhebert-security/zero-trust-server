@@ -7,7 +7,7 @@
     <meta name="description" content="EtherNet/IP and CIP, how Rockwell PLCs describe themselves over the wire, and what that self-description hands to an attacker.">
     <meta property="og:title" content="Matthew Hebert · EtherNet/IP and CIP: How Rockwell PLCs Talk and How Attackers Listen">
     <meta property="og:description" content="EtherNet/IP and CIP, how Rockwell PLCs describe themselves over the wire, and what that self-description hands to an attacker.">
-    <meta property="og:url" content="https://mhebert.dev/ot-learning/module-2-protocols/article-4-ethernetip.html">
+    <meta property="og:url" content="https://mhebert.dev/ot-learning/module-2-protocols/article-2-ethernetip.html">
     <link rel="icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -27,7 +27,7 @@
 
     <main>
         <h1 class="page-title">EtherNet/IP and CIP: How Rockwell PLCs Talk and How Attackers Listen</h1>
-        <p class="muted"><strong>Published:</strong> <time datetime="2026-09-18">2026-09-18</time> · <strong>Module:</strong> Module 2 · Protocol Literacy · <strong>Code:</strong> <a href="https://github.com/mhebert-security/enip-lab">github.com/mhebert-security/enip-lab</a></p>
+        <p class="muted"><strong>Published:</strong> <time datetime="2026-09-18">2026-09-18</time> · <strong>Module:</strong> Module 2, Article 2 · Protocol Literacy · <strong>Code:</strong> <a href="https://github.com/mhebert-security/enip-lab">github.com/mhebert-security/enip-lab</a></p>
         <div class="writeup">
 <hr>
 <p>Modbus tells you that a device exists on port 502 and then it stops talking. You send a read, and if the address is right, you get a value. You get no name, no vendor, no firmware revision, no clue what the device is unless somebody has told you out of band. Getting oriented on an unfamiliar Modbus network is like walking into a dark room and feeling your way around the furniture.</p>
@@ -131,7 +131,7 @@ State               1 byte</code></pre>
 <h2>What Comes Next</h2>
 <p>DNP3 is next in this module. It is the protocol the electric grid runs on, it has a security extension that most of the installed base does not use, and its history with the Ukraine grid attacks makes it the most politically loaded protocol in this series. After DNP3, IEC 61850, the substation automation standard that pays more attention to safety than any of the others.</p>
 <h2>Companion Project</h2>
-<p>The companion for this article is a passive EtherNet/IP analysis lab at <a href="https://github.com/mhebert-security/enip-lab">github.com/mhebert-security/enip-lab</a>. It contains a pcap file with List Identity broadcasts and implicit I/O traffic captured from a lab segment, and a Python script that reconstructs the device inventory and tag vocabulary of the segment without sending a single packet to any target. The point of the lab is to demonstrate that everything an attacker learns during reconnaissance can be learned passively, using only what the protocol produces on its own.</p>
+<p>The companion for this article is an active List Identity lab at <a href="https://github.com/mhebert-security/enip-lab">github.com/mhebert-security/enip-lab</a>. It has two pieces: a server that pretends to be a Rockwell ControlLogix on UDP 44818, and a client that sends the 24-byte List Identity request and prints the full reply in hex. The reply carries the vendor, the product family, the firmware revision, the serial number, and the product name, all with no authentication. Run the two together and you watch the exchange an attacker runs during discovery.</p>
         </div>
 
         <p class="faint">Back to <a href="/ot-learning/module-2-protocols/">Protocol Literacy</a> or the <a href="/ot-learning/">series index</a>.</p>
