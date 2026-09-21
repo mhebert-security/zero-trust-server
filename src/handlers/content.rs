@@ -481,7 +481,12 @@ mod tests {
             let response = writing_article(path);
             assert_eq!(response.status, 200, "{path} serves the index");
             let body = String::from_utf8(response.body).expect("html is utf-8");
-            assert!(body.contains("<h1 class=\"page-title\">writing</h1>"));
+            for (article_path, _) in known {
+                assert!(
+                    body.contains(&format!("<a href=\"{article_path}\">")),
+                    "the index links every article"
+                );
+            }
         }
 
         for path in [

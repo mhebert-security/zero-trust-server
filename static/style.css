@@ -278,6 +278,27 @@ h1, h2, h3, h4 {
     border-bottom-color: currentColor;
 }
 
+/* Internship section on the landing page, below the nav. */
+.internship {
+    margin-top: 2.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+}
+
+.internship h2 {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--fg-muted);
+    letter-spacing: 0.08em;
+    margin: 0 0 0.5rem;
+}
+
+.internship p {
+    margin: 0;
+    max-width: 34rem;
+}
+
 /* ---------- 5. Prose (interior pages) ---------- */
 
 .lead {

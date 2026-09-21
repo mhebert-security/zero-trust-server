@@ -532,7 +532,10 @@ mod tests {
         assert_eq!(index.response.status, 200);
         assert_eq!(index.session, Some(true));
         let body = String::from_utf8(index.response.body).expect("utf-8");
-        assert!(body.contains("<h1 class=\"page-title\">writing</h1>"));
+        assert!(
+            body.contains(r#"<a href="/writing/zero-trust-http-rust.html">"#),
+            "the writing index links the articles"
+        );
 
         let miss = handle(&gated_request(Method::Get, "/writing/nope.html"), None);
         assert_eq!(miss.response.status, 404);
