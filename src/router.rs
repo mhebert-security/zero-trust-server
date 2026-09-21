@@ -75,6 +75,7 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
         (true, "/") => content::index(request),
         (true, "/about") => content::about(request),
         (true, "/projects") => content::projects(request),
+        (true, "/internship") => content::internship(request),
         (true, "/writing") => content::writing(request),
         (true, "/contact") => content::contact(request),
 

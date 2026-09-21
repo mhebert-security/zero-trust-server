@@ -22,6 +22,11 @@ pub fn projects(_request: &Request) -> Response {
     html_response(include_str!("../../static/projects.html"))
 }
 
+/// Serve the internship page.
+pub fn internship(_request: &Request) -> Response {
+    html_response(include_str!("../../static/internship/index.html"))
+}
+
 /// Serve the writing index page. This is the same document served at
 /// /writing and /writing/, so the bare route and the directory route never
 /// disagree.
