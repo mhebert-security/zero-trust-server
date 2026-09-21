@@ -27,6 +27,22 @@ pub fn internship(_request: &Request) -> Response {
     html_response(include_str!("../../static/internship/index.html"))
 }
 
+/// Serve a page under /internship/.
+/// Internship sub-pages are static HTML documents embedded at compile time,
+/// each an explicit arm here. An unknown slug (a typo, a traversal attempt,
+/// a trailing slash) falls through to the shared 404, exactly like any other
+/// miss.
+pub fn internship_page(path: &str) -> Response {
+    let Some(slug) = path.strip_prefix("/internship/") else {
+        return not_found();
+    };
+    let html = match slug {
+        "tide-glass" => include_str!("../../static/internship/tide-glass.html"),
+        _ => return not_found(),
+    };
+    html_response(html)
+}
+
 /// Serve the writing index page. This is the same document served at
 /// /writing and /writing/, so the bare route and the directory route never
 /// disagree.

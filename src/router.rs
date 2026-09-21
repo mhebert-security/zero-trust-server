@@ -104,6 +104,9 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
         // explicitly; an unknown path falls through to the shared 404 below.
         (true, path) if path.starts_with("/ot-learning/") => content::ot_learning(path),
 
+        // Internship sub-pages — /internship/tide-glass and future reports.
+        (true, path) if path.starts_with("/internship/") => content::internship_page(path),
+
         // Catch-all — 404 for anything not explicitly listed. Shared with the
         // static-asset miss handler so both answer in the same human voice.
         _ => content::not_found(),

