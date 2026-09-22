@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Matthew Hebert · Extending ATT&amp;CK into the Plant Floor: My First ICS Detection Rules</title>
-    <meta name="description" content="The ICS ATT&amp;CK matrix and three techniques, T0855, T0873, and T0816, each as a Sigma rule.">
+    <meta name="description" content="First ICS detection rules: Zeek and Suricata for DNP3 control traffic, plus Sigma rules for T0855, T0873, and T0816.">
     <meta property="og:title" content="Matthew Hebert · Extending ATT&amp;CK into the Plant Floor: My First ICS Detection Rules">
-    <meta property="og:description" content="The ICS ATT&amp;CK matrix and three techniques, T0855, T0873, and T0816, each as a Sigma rule.">
+    <meta property="og:description" content="First ICS detection rules: Zeek and Suricata for DNP3 control traffic, plus Sigma rules for T0855, T0873, and T0816.">
     <meta property="og:url" content="https://mhebert.dev/ot-learning/module-3-detection/article-6-ics-attck-rules.html">
     <link rel="icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/style.css">
@@ -27,10 +27,178 @@
 
     <main>
         <h1 class="page-title">Extending ATT&amp;CK into the Plant Floor: My First ICS Detection Rules</h1>
-        <p class="muted">This article is in progress. Check back or follow on Substack for the published version.</p>
+        <p class="muted"><strong>Published:</strong> <time datetime="2026-09-21">2026-09-21</time> · <strong>Module:</strong> Module 3: Threat Detection Applied to OT · <strong>Code:</strong> <a href="https://github.com/mhebert-security/sigma-detections-attck">github.com/mhebert-security/sigma-detections-attck</a></p>
+        <div class="writeup">
+<hr>
+<p>Every detection rule I had written before this month assumed the same thing: that malicious traffic and benign traffic are different. Malware does malware things. Phishing has a phishing shape. A credential dump has a fingerprint. You write the rule against the fingerprint, you tune the false positives down, you ship it.</p>
+<p>Then I wrote a detection rule for DNP3 and the assumption fell apart. The malicious write and the legitimate write are the same bytes. There is no fingerprint. There is a function code, a point number, and a value. If the function code is DIRECT_OPERATE and the value opens a breaker, the outstation opens the breaker, whether the packet came from the SCADA master or from a laptop plugged into a switch in the same cabinet.</p>
+<p>This is the piece where I write down what I learned writing my first ICS detection rules, because I have not found it collected in one place.</p>
+<h2>ATT&amp;CK for ICS is not a translation job</h2>
+<p>My first mistake was treating the ATT&amp;CK for ICS matrix like the ATT&amp;CK Enterprise matrix. On the Enterprise side, most techniques map to something you can look for in a log or on a wire. On the ICS side, a technique describes what the adversary is trying to accomplish against a physical process, and the evidence of it may not exist anywhere a sensor can see.</p>
+<p>Take T0855, Unauthorized Command Message. On the Enterprise side you would hunt it in process creation logs and network egress. On the ICS side, T0855 is a well formed protocol message with a function code the protocol designed in. The outstation cannot tell it from a normal command. The only evidence that a command is unauthorized is the source. The only evidence that it is malicious is the effect.</p>
+<p>So the mapping from technique to rule is not one to one. It is one to many, and every one of them requires you to know the protocol at the byte level. That is the part that kept slowing me down.</p>
+<h2>The plant floor is not an endpoint</h2>
+<p>The second thing I learned is that most ICS detection is not endpoint detection. It is network detection against a protocol, and the protocol is designed to be terse.</p>
+<p>Consider what a DNP3 control operation actually looks like on the wire. Twelve bytes of application payload, most of which is bookkeeping. There is no executable, no command string, no URL, no user agent. There is a function code. The function code is the entire signal. Everything else is the addressing that gets the function code to the right device.</p>
+<p>That forces a different kind of rule. You are not matching a signature. You are deciding, in advance, which protocol operations are worth waking a human for, and then alerting on those and nothing else. The rule set becomes a policy about which function codes the plant would never expect from the source that sent them.</p>
+<p>This is where the ICS rules start to look nothing like the Enterprise rules. An Enterprise Sigma rule says "powershell spawned by a Word process." An ICS rule says "DIRECT_OPERATE_NR from an address that is not on the master list." The first is a signature. The second is a policy.</p>
+<h2>The repo</h2>
+<p>Everything from here lives in <a href="https://github.com/mhebert-security/sigma-detections-attck">github.com/mhebert-security/sigma-detections-attck</a>, under <code>ot-protocols/</code>. The layout for DNP3:</p>
+<pre><code>ot-protocols/dnp3/README.md
+ot-protocols/dnp3/zeek/dnp3_control.zeek
+ot-protocols/dnp3/suricata/dnp3.rules</code></pre>
+<p>The repo name says Sigma and the first protocol I shipped is not Sigma, which I will explain. Sigma is a rule format for logs, and logs are the wrong shape for this. A DNP3 control operation is not a log line. It is a packet. I will add Sigma rules for the logs that do exist, the Windows event logs on the engineering workstation, the EDR telemetry on the HMI, because those are the places an operator station gets compromised. But the protocol traffic itself needs a network sensor, and Sigma does not describe network sensors.</p>
+<p>So the first two files in the repo are a Zeek script and a Suricata rules file. I wrote both on purpose.</p>
+<h2>The Zeek side</h2>
+<p>Zeek ships a DNP3 analyzer. That means Zeek parses the link frame, the transport layer, and the application layer, and raises events when it sees an application request. I do not have to find the function code myself. I register a handler, and Zeek hands me the function code, the application sequence number, and the internal indication bits.</p>
+<p>The script watches for the function codes that constitute control, restart, and configuration change, plus the Secure Authentication failure code. It emits a notice for each. The core of the script is a set of comparisons against named constants:</p>
+<pre><code class="language-zeek">const FUNC_SELECT            = 3;
+const FUNC_OPERATE           = 4;
+const FUNC_DIRECT_OPERATE    = 5;
+const FUNC_DIRECT_OPERATE_NR = 6;
+const FUNC_COLD_RESTART      = 13;
+const FUNC_WARM_RESTART      = 14;
+const FUNC_INITIALIZE_DATA   = 15;
+const FUNC_SAVE_CONFIG       = 19;
+const FUNC_DISABLE_UNSOLICITED = 21;
+const FUNC_DELETE_FILE       = 27;
+const FUNC_ACTIVATE_CONFIG   = 31;
+const FUNC_AUTHENTICATE_ERR  = 34;</code></pre>
+<p>And a handler that fires on the application request event:</p>
+<pre><code class="language-zeek">event dnp3_application_request(c: connection, is_orig: bool,
+                               app_sequence: count, func_code: count,
+                               iin: count)
+    {
+    if ( ! is_orig )
+        return;
 
-        <h2 class="rule">companion project</h2>
-        <p class="muted">Three Sigma rules for the ICS ATT&amp;CK techniques T0855, T0873, and T0816. <a href="https://github.com/mhebert-security/sigma-detections-attck">github.com/mhebert-security/sigma-detections-attck</a></p>
+    if ( func_code == FUNC_DIRECT_OPERATE_NR )
+        {
+        NOTICE([$note = Control_Direct_Operate_No_Response,
+                $conn = c,
+                $msg = fmt("DNP3 DIRECT_OPERATE_NR (func 6), %s, %s",
+                           trust_label(c$id$orig_h),
+                           fmt_pair(c$id$orig_h, c$id$resp_h)),
+                $identifier = pair]);
+        }
+    }</code></pre>
+<p>Two things in that snippet are the whole idea.</p>
+<p>The first is <code>trust_label</code>. The script keeps a set of authorized master addresses. A control operation from inside that set is logged as an authorized master. The same operation from outside that set is logged as an UNAUTHORIZED source. The bytes are identical. The label is the detection.</p>
+<p>The second is the choice of what is in scope at all. I am not alerting on READ. A master reads points all day. I am alerting on the function codes that change the physical state, plus the ones that erase evidence or take away visibility. If a rule fires on every frame, it fires on nothing.</p>
+<h2>The one piece of state</h2>
+<p>The only stateful detection in the set is the SELECT and OPERATE window.</p>
+<p>SELECT_BEFORE_OPERATE is the closest thing DNP3 has to a safety mechanism. The master selects a point, the outstation arms a timer and confirms, and the master has a few seconds to send OPERATE. If the master does not operate in the window, the select expires. The idea is that a select is reversible and an operate is not, so you separate them and let the operator look before they leap. It is a guard against an accidental operation. It is not a guard against an unauthorized one, because an attacker who can reach the outstation can send SELECT and then OPERATE in sequence exactly like the master does.</p>
+<p>The script tracks pending selects in a table keyed by source and destination, and when an OPERATE arrives late, outside the expected window, it fires. That does not catch the attacker who does it correctly. It catches the outstation that was left armed, or the replay that came in after the window closed. It is a thin detection, and I am honest in the README that it is thin.</p>
+<h2>The Suricata side</h2>
+<p>Suricata does not have a DNP3 parser. That is not a criticism, it is a fact that shapes the rules. Without a parser, I match on byte offsets inside the TCP segment.</p>
+<p>The DNP3 link frame has a fixed layout. It starts with <code>05 64</code>. A length byte follows. Then the link control byte. Then a 16 bit destination address and a 16 bit source address. Then a header CRC. Then the transport byte. Then the application control byte. Then the function code, at offset 12 from the start of the frame.</p>
+<p>So every rule anchors on the link start and walks ten bytes to reach the function code:</p>
+<pre><code>alert tcp any any -&gt; any 20000 (
+    msg:"OT DNP3 DIRECT_OPERATE (T0855)";
+    flow:to_server,established;
+    content:"|05 64|"; depth:2;
+    content:"|05|"; distance:10; within:1;
+    classtype:attempted-admin;
+    metadata:mitre_technique T0855, protocol dnp3;
+    sid:1001002; rev:1;
+)</code></pre>
+<p>The <code>depth:2</code> pins the match to the first two bytes. The <code>distance:10</code> then <code>within:1</code> walks ten bytes forward and matches the next single byte. That lands on the function code. <code>05</code> is DIRECT_OPERATE. The same template with a different byte is the same rule for a different function code. I shipped twelve of them plus one on the link layer RESET_LINK_STATES, all on the standard DNP3 TCP port of 20000.</p>
+<p>The Suricata rules do not need a build flag, a parser bump, or a plugin. They run on any Suricata 6 or 7. That is the tradeoff: Zeek understands the protocol and can miss nothing, Suricata understands nothing and can be deployed by anyone today.</p>
+<p>One rule in the set is worth calling out as different. DISABLE_UNSOLICITED, function 21, turns off proactive reporting so the master stops hearing about state changes. That is not a control operation. It is a visibility operation. It maps to T0804, Block Reporting Message, and it is one of the few detections here that a normal operator has no reason to trigger during routine work. I would run it in a production plant before most of the others.</p>
+<h2>The Sigma side</h2>
+<p>I said earlier that Sigma is the wrong shape for protocol traffic. The three rules in <code>ics-attack/</code> prove that Sigma is the right shape for everything else.</p>
+<p>The first rule watches for Modbus writes from unauthorized sources. It targets Zeek's Modbus log, which records every function code, unit ID, and address. The detection is a set membership check: if the source is not on the engineering workstation list and the function code is a write, alert.</p>
+<pre><code class="language-yaml">detection:
+    selection:
+        func:
+            - 5     # Write Single Coil
+            - 6     # Write Single Register
+            - 15    # Write Multiple Coils
+            - 16    # Write Multiple Registers
+    filter_authorized:
+        id.orig_h:
+            - 10.10.10.10   # primary engineering workstation
+            - 10.10.10.11   # backup engineering workstation
+    condition: selection and not filter_authorized</code></pre>
+<p>This is T0855 expressed in logs instead of packets. The Suricata rule for the same technique fires on every write regardless of source. This one fires only on the unauthorized ones, which means it needs the allowlist to be accurate. That is a dependency. If the allowlist is wrong, the rule is wrong.</p>
+<p>The second rule watches for PLC project file modifications from processes that are not recognized engineering tools. Rockwell <code>.ACD</code>, Siemens <code>.ap1x</code>, Schneider <code>.stu</code>, and others. This is T0873, Project File Infection, and it is the vector Stuxnet used. The detection is a Windows file event paired with a process image filter:</p>
+<pre><code class="language-yaml">detection:
+    selection_ext:
+        TargetFilename|endswith:
+            - '.ACD'
+            - '.L5X'
+            - '.L5K'
+            - '.RSS'
+            - '.ap13'
+            - '.ap14'
+            - '.ap15'
+            - '.ap16'
+            - '.ap17'
+            - '.ap18'
+            - '.ap19'
+            - '.project'
+            - '.stu'
+            - '.sta'
+            - '.xef'
+    filter_engineering_tools:
+        Image|contains:
+            - '\Rockwell Software'
+            - '\Studio 5000'
+            - '\TIA Portal'
+            - '\CODESYS'
+    condition: selection_ext and not 1 of filter_*</code></pre>
+<p>This rule lives on the engineering workstation, not on the network. The adversary has to be there already. The rule is the last mile before the download.</p>
+<p>The third rule wraps the DNP3 restart detection in Sigma form against Zeek's DNP3 log, which is a cleaner expression of the same technique covered in the Suricata set:</p>
+<pre><code class="language-yaml">detection:
+    selection:
+        fc_request:
+            - 13    # Cold Restart
+            - 14    # Warm Restart
+    condition: selection</code></pre>
+<p>This one is simple because Zeek has already parsed the function code. No offset arithmetic. The rule is the policy, and Zeek handles the parsing.</p>
+<p>The three Sigma rules are in <code>ics-attack/</code> in the repo. They are not a complete set. They are evidence that the detection problem in ICS splits across two different surfaces and needs two different tools.</p>
+<h2>The technique coverage</h2>
+<p>The rules carry ATT&amp;CK for ICS technique IDs in metadata so they can be reconstructed into a coverage view.</p>
+<table>
+    <thead>
+        <tr>
+            <th scope="col">Function code</th>
+            <th scope="col">Rule</th>
+            <th scope="col">Technique</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr><td>RESET_LINK_STATES</td><td>link layer reset</td><td>none, link layer only</td></tr>
+        <tr><td>OPERATE</td><td>1001004</td><td>T0855</td></tr>
+        <tr><td>DIRECT_OPERATE</td><td>1001002</td><td>T0855</td></tr>
+        <tr><td>DIRECT_OPERATE_NR</td><td>1001003</td><td>T0855</td></tr>
+        <tr><td>WARM_RESTART</td><td>1001006</td><td>T0816</td></tr>
+        <tr><td>COLD_RESTART</td><td>1001005</td><td>T0816</td></tr>
+        <tr><td>INITIALIZE_DATA</td><td>1001007</td><td>T0813</td></tr>
+        <tr><td>SAVE_CONFIG</td><td>1001008</td><td>T0836</td></tr>
+        <tr><td>DISABLE_UNSOLICITED</td><td>1001009</td><td>T0804</td></tr>
+        <tr><td>DELETE_FILE</td><td>1001010</td><td>T0809</td></tr>
+        <tr><td>ACTIVATE_CONFIG</td><td>1001011</td><td>T0836</td></tr>
+        <tr><td>AUTHENTICATE_REQ</td><td>1001012</td><td>baseline, no mapping</td></tr>
+        <tr><td>AUTHENTICATE_ERR</td><td>1001013</td><td>T0855</td></tr>
+    </tbody>
+</table>
+<p>AUTHENTICATE_REQ gets no technique because it is the opposite of a detection. It fires only when Secure Authentication is actually enabled on the link. The presence of its alerts on a DNP3 segment is how you prove SA is on, which for most of the grid is the interesting finding, because it is usually off.</p>
+<h2>What this does not catch</h2>
+<p>The Suricata rules match on fixed offsets. A DNP3 application fragment that is large enough to split across multiple transport segments will not have the function code at offset 12 of every segment. Zeek handles that case through the analyzer. Suricata does not. This is the single biggest gap and it is a consequence of matching bytes instead of parsing.</p>
+<p>The rules have no baseline. A master that opens a breaker it has never touched before looks identical to one that has done it every day for a decade. Detection engineering on the plant floor eventually has to move toward behavioral baselining, per point, per source, per schedule, and I have not built that. The rules I shipped are a floor, not a ceiling.</p>
+<p>There is no correlation between the Secure Authentication challenge and its response. The challenge and response are separate frames and the response carries a keyed HMAC the rules do not verify. A rule that verified it would need the preshared key, which is not in the packet.</p>
+<h2>What I did not solve</h2>
+<p>I have not written the Sigma rules for the workstation logs, the EDR telemetry, or the Windows event logs on the engineering node. Those are the logs where an adversary reaches the plant from the office side. The protocol rules are the last mile. The first mile is a scanner, a phish, or a valid account, and I have not written detection for any of it yet.</p>
+<p>I have not built the behavioral baseline. I do not know what normal poll cadence looks like on a real substation versus what I imagine it looks like. I would need a real capture from a real outstation to learn that, and I do not have one.</p>
+<p>I have not tested the Zeek script against a live DNP3 master and outstation. I have it running against captures. The event signatures may differ on a different Zeek version and I have only verified one.</p>
+<p>I have not written the equivalent rules for IEC 61850 MMS over TCP 102, or for GOOSE at layer 2. Those are next and the GOOSE half is genuinely hard, because a GOOSE frame has no IP header to anchor a rule and I am not sure yet how to express a subscriber side spoof detection in Suricata at all.</p>
+<h2>Companion Project</h2>
+<p><a href="https://github.com/mhebert-security/sigma-detections-attck">github.com/mhebert-security/sigma-detections-attck</a></p>
+<pre><code>ot-protocols/dnp3/zeek/dnp3_control.zeek    Zeek script, 7 notice types
+ot-protocols/dnp3/suricata/dnp3.rules       Suricata, 13 rules + template
+ot-protocols/dnp3/README.md                 Deploy steps, rule index, coverage table</code></pre>
+        </div>
 
         <p class="faint">Back to <a href="/ot-learning/module-3-detection/">Threat Detection Applied to OT</a> or the <a href="/ot-learning/">series index</a>.</p>
     </main>
