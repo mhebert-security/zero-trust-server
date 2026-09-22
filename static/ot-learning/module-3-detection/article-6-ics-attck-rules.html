@@ -27,7 +27,7 @@
 
     <main>
         <h1 class="page-title">Extending ATT&amp;CK into the Plant Floor: My First ICS Detection Rules</h1>
-        <p class="muted"><strong>Published:</strong> <time datetime="2026-09-21">2026-09-21</time> · <strong>Module:</strong> Module 3: Threat Detection Applied to OT · <strong>Code:</strong> <a href="https://github.com/mhebert-security/sigma-detections-attck">github.com/mhebert-security/sigma-detections-attck</a></p>
+        <p class="muted"><strong>Published:</strong> <time datetime="2026-09-21">2026-09-21</time> · <strong>Module:</strong> Module 3: Threat Detection Applied to OT · <strong>Code:</strong> <a href="https://github.com/mhebert-security/sigma-rules">github.com/mhebert-security/sigma-rules</a></p>
         <div class="writeup">
 <hr>
 <p>Every detection rule I had written before this month assumed the same thing: that malicious traffic and benign traffic are different. Malware does malware things. Phishing has a phishing shape. A credential dump has a fingerprint. You write the rule against the fingerprint, you tune the false positives down, you ship it.</p>
@@ -43,7 +43,7 @@
 <p>That forces a different kind of rule. You are not matching a signature. You are deciding, in advance, which protocol operations are worth waking a human for, and then alerting on those and nothing else. The rule set becomes a policy about which function codes the plant would never expect from the source that sent them.</p>
 <p>This is where the ICS rules start to look nothing like the Enterprise rules. An Enterprise Sigma rule says "powershell spawned by a Word process." An ICS rule says "DIRECT_OPERATE_NR from an address that is not on the master list." The first is a signature. The second is a policy.</p>
 <h2>The repo</h2>
-<p>Everything from here lives in <a href="https://github.com/mhebert-security/sigma-detections-attck">github.com/mhebert-security/sigma-detections-attck</a>, under <code>ot-protocols/</code>. The layout for DNP3:</p>
+<p>Everything from here lives in <a href="https://github.com/mhebert-security/sigma-rules">github.com/mhebert-security/sigma-rules</a>, under <code>ot-protocols/</code>. The layout for DNP3:</p>
 <pre><code>ot-protocols/dnp3/README.md
 ot-protocols/dnp3/zeek/dnp3_control.zeek
 ot-protocols/dnp3/suricata/dnp3.rules</code></pre>
@@ -194,7 +194,7 @@ const FUNC_AUTHENTICATE_ERR  = 34;</code></pre>
 <p>I have not tested the Zeek script against a live DNP3 master and outstation. I have it running against captures. The event signatures may differ on a different Zeek version and I have only verified one.</p>
 <p>I have not written the equivalent rules for IEC 61850 MMS over TCP 102, or for GOOSE at layer 2. Those are next and the GOOSE half is genuinely hard, because a GOOSE frame has no IP header to anchor a rule and I am not sure yet how to express a subscriber side spoof detection in Suricata at all.</p>
 <h2>Companion Project</h2>
-<p><a href="https://github.com/mhebert-security/sigma-detections-attck">github.com/mhebert-security/sigma-detections-attck</a></p>
+<p><a href="https://github.com/mhebert-security/sigma-rules">github.com/mhebert-security/sigma-rules</a></p>
 <pre><code>ot-protocols/dnp3/zeek/dnp3_control.zeek    Zeek script, 7 notice types
 ot-protocols/dnp3/suricata/dnp3.rules       Suricata, 13 rules + template
 ot-protocols/dnp3/README.md                 Deploy steps, rule index, coverage table</code></pre>
