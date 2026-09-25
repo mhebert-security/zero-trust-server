@@ -3,14 +3,15 @@
 //! Zero trust meets egress here. The fetcher's only destination is the
 //! catalog in feeds.rs, so every request is checked twice before a byte
 //! moves: the URL must name an allowlisted host, and the TLS handshake must
-//! verify that host's certificate against Mozilla's roots. Redirects are
-//! never followed, so a feed cannot steer this process toward a host the
-//! catalog never named. Every socket is bounded by time (a read or write
+//! verify that host's certificate against Mozilla's roots. A single redirect
+//! is followed, and its target host is re-checked against the same allowlist,
+//! so a feed cannot steer this process toward a host the catalog never
+//! named. Every socket is bounded by time (a read or write
 //! that stalls for ten seconds is dropped) and by size (a response that
 //! exceeds its budget aborts mid-read, never buffered whole first).
 //!
 //! The transport is deliberately thin. This module speaks just enough HTTP
-//! to fetch a feed: one GET per feed, no redirects, no compression (the
+//! to fetch a feed: one GET per feed, a single redirect followed, no compression (the
 //! request asks for `identity` and a feed that answers with gzip anyway is
 //! treated as a failure, not silently inflated). The NVD 2.0 API is the one
 //! exception to the single GET: it orders by publish date ascending and
@@ -69,7 +70,7 @@ const NVD_WINDOW_SECS: i64 = 7 * 24 * 60 * 60;
 const NVD_PAGE: i64 = 20;
 
 /// Declared to every feed server so the connection identifies itself.
-pub const USER_AGENT: &str = "mhebert-cyber-news/1.0";
+pub const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0";
 
 /// How much of an item's body text is worth keeping. Feeds can carry full
 /// article HTML in the description slot; a reader wants the first lines, not
@@ -83,7 +84,7 @@ pub enum FetchError {
     NotHttps,
     /// The URL could not be split into host and path.
     MalformedUrl(String),
-    /// The URL's host is not one of the ten in feeds.rs.
+    /// The URL's host is not one of the seventeen in feeds.rs.
     HostNotAllowed(String),
     /// The hostname did not resolve.
     Dns(io::Error),
@@ -93,9 +94,10 @@ pub enum FetchError {
     Io(io::Error),
     /// The TLS configuration, handshake, or certificate verification failed.
     Tls(String),
-    /// The feed answered with a status other than 200. Redirects land here
-    /// as well; they are never followed.
+    /// The feed answered with a status other than 200.
     HttpStatus(u16),
+    /// A redirect target redirected again; only one redirect is followed.
+    TooManyRedirects,
     /// The body ran past its budget and the read was aborted.
     BodyTooLarge { limit: usize },
     /// The HTTP framing was not well formed, or the body was truncated.
@@ -118,8 +120,9 @@ impl fmt::Display for FetchError {
             FetchError::Connect(e) => write!(f, "connection failed: {e}"),
             FetchError::Io(e) => write!(f, "io error: {e}"),
             FetchError::Tls(e) => write!(f, "tls error: {e}"),
-            FetchError::HttpStatus(code) => {
-                write!(f, "feed answered http {code} (redirects are not followed)")
+            FetchError::HttpStatus(code) => write!(f, "feed answered http {code}"),
+            FetchError::TooManyRedirects => {
+                write!(f, "feed redirected more than once; following only the first")
             }
             FetchError::BodyTooLarge { limit } => {
                 write!(f, "response exceeded the {limit} byte budget; read aborted")
@@ -271,18 +274,63 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, i64, i64) {
 /// One verified GET, returned as the response body text.
 ///
 /// Everything a fetch shares: the allowlist check against the host the URL
-/// names, the TLS handshake that verifies it, the single GET, the status and
-/// content-encoding checks, and the read under the body budget. The caller
-/// decides how the body parses.
+/// names, the TLS handshake that verifies it, the GET, a single redirect
+/// follow when the server answers 301/302 (the redirect host is re-checked
+/// against the same allowlist before the second request), and the status and
+/// content-encoding checks on the final response. The caller decides how the
+/// body parses.
 fn get_body(url: &str) -> Result<String, FetchError> {
     let (host, path) = parse_url(url)?;
     if !host_is_allowed(&host) {
         return Err(FetchError::HostNotAllowed(host));
     }
 
-    let budget = body_budget(url);
-    let socket = connect(&host)?;
-    let mut tls = tls_client(&host, socket)?;
+    let (head, body) = get_once(&host, &path, body_budget(url))?;
+
+    // A 301/302 is followed exactly once: the Location is resolved against
+    // the original URL, its host re-checked against the catalog, and one
+    // more request made. A second redirect is refused, and a redirect that
+    // leaves the catalog is refused before any connection to that host.
+    let (head, body) = if head.status == 301 || head.status == 302 {
+        let location = header(&head.headers, "location")
+            .ok_or_else(|| FetchError::Protocol("redirect without a Location header".into()))?;
+        let redirect_url = resolve_redirect(url, location)?;
+        let (redirect_host, redirect_path) = parse_url(&redirect_url)?;
+        if !host_is_allowed(&redirect_host) {
+            return Err(FetchError::HostNotAllowed(redirect_host));
+        }
+        let (second_head, second_body) =
+            get_once(&redirect_host, &redirect_path, body_budget(&redirect_url))?;
+        if second_head.status == 301 || second_head.status == 302 {
+            return Err(FetchError::TooManyRedirects);
+        }
+        (second_head, second_body)
+    } else {
+        (head, body)
+    };
+
+    if head.status != 200 {
+        return Err(FetchError::HttpStatus(head.status));
+    }
+    if let Some(encoding) = header(&head.headers, "content-encoding")
+        && encoding != "identity"
+    {
+        return Err(FetchError::ContentEncoding(encoding.to_string()));
+    }
+
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+/// One raw HTTPS GET to `host` at `path`, returned as the parsed response
+/// head and its body. The connection, TLS handshake, request, status line,
+/// and bounded read all happen here; redirect handling is the caller's job.
+fn get_once(
+    host: &str,
+    path: &str,
+    budget: usize,
+) -> Result<(ResponseHead, Vec<u8>), FetchError> {
+    let socket = connect(host)?;
+    let mut tls = tls_client(host, socket)?;
 
     let request = format!(
         "GET {path} HTTP/1.1\r\n\
@@ -299,17 +347,31 @@ fn get_body(url: &str) -> Result<String, FetchError> {
     // buffered reader and do not write again.
     let mut reader = BufReader::new(tls);
     let head = read_response_head(&mut reader)?;
-    if head.status != 200 {
-        return Err(FetchError::HttpStatus(head.status));
-    }
-    if let Some(encoding) = header(&head.headers, "content-encoding")
-        && encoding != "identity"
-    {
-        return Err(FetchError::ContentEncoding(encoding.to_string()));
-    }
-
     let body = read_body(&mut reader, &head.headers, budget)?;
-    Ok(String::from_utf8_lossy(&body).into_owned())
+    Ok((head, body))
+}
+
+/// Resolve a redirect `Location` against the URL that produced it.
+///
+/// The Location may be absolute, protocol-relative, root-relative, or
+/// relative to the original path's directory (RFC 7231). The result is an
+/// absolute URL; the caller re-checks its host against the allowlist.
+fn resolve_redirect(base_url: &str, location: &str) -> Result<String, FetchError> {
+    if location.starts_with("https://") || location.starts_with("http://") {
+        return Ok(location.to_string());
+    }
+    if let Some(rest) = location.strip_prefix("//") {
+        return Ok(format!("https://{rest}"));
+    }
+    let (host, base_path) = parse_url(base_url)?;
+    if let Some(rest) = location.strip_prefix('/') {
+        return Ok(format!("https://{host}/{rest}"));
+    }
+    let dir = base_path
+        .rfind('/')
+        .map(|i| &base_path[..=i])
+        .unwrap_or("/");
+    Ok(format!("https://{host}{dir}{location}"))
 }
 
 /// Split an https url into its (lowercased) host and its request path.
@@ -1561,6 +1623,26 @@ mod tests {
             "isc.sans.edu"
         );
         assert!(matches!(parse_url("http://insecure.example/"), Err(FetchError::NotHttps)));
+    }
+
+    #[test]
+    fn redirect_locations_resolve_against_the_base_url() {
+        assert_eq!(
+            resolve_redirect("https://a.example/feed/", "https://b.example/new").expect("resolves"),
+            "https://b.example/new"
+        );
+        assert_eq!(
+            resolve_redirect("https://a.example/feed/", "//cdn.example/rss").expect("resolves"),
+            "https://cdn.example/rss"
+        );
+        assert_eq!(
+            resolve_redirect("https://a.example/feed/", "/other").expect("resolves"),
+            "https://a.example/other"
+        );
+        assert_eq!(
+            resolve_redirect("https://a.example/blog/feed/", "feed").expect("resolves"),
+            "https://a.example/blog/feed/feed"
+        );
     }
 
     #[test]
