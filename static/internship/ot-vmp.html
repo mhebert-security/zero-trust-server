@@ -181,106 +181,106 @@
 </header>
 
 <main class="article">
-
 <h1>What Building an OT/ICS Vulnerability Management Program Actually Taught Me</h1>
-<p class="standfirst">A vulnerability management program built for an industrial control system environment — asset inventory, scan scoping by Purdue level, a stakeholder-negotiated policy, and six rounds of PowerShell remediations.</p>
+<p class="standfirst">A vulnerability management program built for an industrial control system environment: asset inventory, scan scoping by Purdue level, a policy shaped by the simulation&rsquo;s approval gates, and six rounds of PowerShell remediations.</p>
 
 <h2>Where I Started</h2>
 <p>I came into this with an enterprise IT mental model. Scan the hosts, triage the findings, patch the criticals, close the tickets. That loop made sense to me. I had run it before.</p>
-<p>What I did not understand going in was that this model collapses almost immediately when you apply it to an operational technology environment. Not because OT is exotic or especially complicated, but because the assumptions underneath the model are wrong. I had to find each of those assumptions and pull it out before I could build something that would actually work.</p>
+<p>What I did not understand going in was that this model collapses almost immediately when you apply it to operational technology (OT), the systems that run physical processes rather than business applications. Not because OT is exotic or especially complicated, but because the assumptions underneath the model are wrong. I had to find each of those assumptions and pull it out before I could build something that would actually work.</p>
+<p>Before I go further, a note on what this was. It was a simulated exercise on a cyber range, not a real plant. The devices, the network, and the approval process were all part of the exercise design, and the roles that showed up along the way were personas the simulation put in front of me rather than coworkers. The learning came from those built-in gates exposing what I had not considered, not from real conversations.</p>
 <p>This is an account of what I found.</p>
 
 <hr>
 
 <h2>The Inversion I Did Not Expect</h2>
-<p>The first thing I had to learn was that OT inverts the CIA triad. Confidentiality, which sits at the top of almost every IT security framework, falls to third in an industrial environment. Availability comes first. Integrity comes second.</p>
-<p>I understood this as a concept before I started. I did not understand what it meant in practice until I tried to write a remediation SLA.</p>
-<p>My first draft said 30 days for critical findings. That number came from my IT background. It is a reasonable number for a web server. For a Level 2 HMI running legacy vendor software, it is nonsense. The vendor certification process alone can take 90 days. You cannot patch without it. A 30-day SLA on a device that cannot be patched in 30 days is not a policy. It is a compliance debt machine.</p>
+<p>The first thing I had to learn was that OT inverts the CIA triad. In enterprise IT, confidentiality sits on top. In an industrial environment, it falls to third. Availability comes first, because a stopped production line is the worst possible outcome. Integrity comes second, because a manipulated process can be as dangerous as a halted one.</p>
+<p>I understood this as a concept before I started. I did not understand what it meant in practice until I tried to write a remediation service level agreement (SLA), the policy that says how fast a fix has to happen.</p>
+<p>My first draft said 30 days for critical findings. That number came from my IT background. It is a reasonable number for a web server. For a Level 2 HMI, a human-machine interface workstation that operators use to watch and control a process, running legacy vendor software, it is nonsense. The vendor certification process alone can take 90 days. You cannot patch without it. A 30-day SLA on a device that cannot be patched in 30 days is not a policy. It is a compliance debt machine.</p>
 <p>I rewrote the SLA to reflect what was actually possible. That was the first time I understood the inversion as a practical constraint rather than a framework principle.</p>
 
 <hr>
 
 <h2>The Purdue Model as a Scanning Decision</h2>
-<p>I had read about the Purdue Reference Model before this project. Levels 0 through 4, physical process up to enterprise network. It was an abstraction.</p>
-<p>What I learned from building the scan framework is that the model is actually a set of scanning decisions. Each level has a different answer to the question &ldquo;can I run a credentialed Nessus scan against this device?&rdquo;</p>
-<p>For Level 0 and Level 1, the answer is no. Not &ldquo;no, but if you&rsquo;re careful.&rdquo; Just no. ICS-CERT has documented cases where active scanning caused process upsets on PLCs. The device&rsquo;s connection table fills, a fault triggers, and the process goes offline. Passive monitoring tools like Claroty or Dragos exist specifically because active scanning is too dangerous at these levels.</p>
-<p>I had to build this into the program architecture before the first scan ran. The scope was deliberately limited to Level 2 and Level 3 hosts. That felt like a constraint at first. Later I understood it was the only responsible starting point.</p>
+<p>I had read about the Purdue Reference Model before this project. It divides a plant into levels, from the physical process at Level 0 up through the enterprise network at Level 4. Before this exercise, it was an abstraction.</p>
+<p>What I learned from building the scan framework is that the model is actually a set of scanning decisions. Each level has a different answer to the question of whether I can run a credentialed scan, one that authenticates to the target rather than probing it from the outside, against a given device.</p>
+<p>For Level 0 and Level 1, the field devices and the controllers, the answer is no. Not a qualified no, just no. ICS-CERT, the industrial control systems cyber emergency response team, has documented cases where active scanning caused process upsets on PLCs, the programmable logic controllers that drive the physical equipment. The device connection table fills, a fault triggers, and the process goes offline. Passive monitoring tools exist specifically because active scanning is too dangerous at these levels.</p>
+<p>I had to build this into the program before the first scan ran. The scope was deliberately limited to Level 2 and Level 3 hosts. That felt like a constraint at first. Later I understood it was the only responsible starting point.</p>
 
 <hr>
 
 <h2>The Asset Inventory Problem</h2>
 <p>I started building the scan configuration before I finished the asset inventory. This was a mistake I caught before it caused a problem, but only barely.</p>
-<p>The issue is that a vulnerability finding without asset context is just a number. Tenable returns a CVSS score. The CVSS score tells you how bad the vulnerability is in the abstract. It tells you nothing about whether the device runs a critical process or a building HVAC controller, whether it has a vendor certification requirement, or whether patching it requires a four-hour maintenance window and a field engineer.</p>
-<p>I had to stop and complete the inventory before I could write the prioritization model. The inventory in <code>assets/ot-asset-inventory.md</code> covers every simulated device: its Purdue level, IP address, OS, function, vendor, patch constraint, and criticality. Every downstream decision in the program references that document.</p>
-<p>The lesson was simple: you cannot score findings in context until you know the context. The inventory comes before everything else.</p>
+<p>The issue is that a vulnerability finding without asset context is just a number. Tenable returns a CVSS score, the Common Vulnerability Scoring System number that ranks severity. That score tells you how bad the vulnerability is in the abstract. It tells you nothing about whether the device runs a critical process or a building HVAC controller, whether it has a vendor certification requirement, or whether patching it requires a four-hour maintenance window and a field engineer.</p>
+<p>I had to stop and complete the inventory before I could write the prioritization model. The inventory in <code>assets/ot-asset-inventory.md</code> covers every simulated device, its Purdue level, IP address, OS, function, vendor, patch constraint, and criticality. Every downstream decision in the program references that document.</p>
+<p>The lesson was simple. You cannot score findings in context until you know the context. The inventory comes before everything else.</p>
 
 <hr>
 
 <h2>What I Learned from the Policy Process</h2>
-<p>My first policy draft was technically coherent and operationally useless. It had the right structure. It had the right categories. The people who would actually have to live by it would not have signed it.</p>
-<p>The operations manager&rsquo;s first question was whether the scan could disrupt production. I did not have a specific answer ready. I had a general answer: &ldquo;we&rsquo;ll use a maintenance window.&rdquo; He needed the exact IP addresses to be scanned, the credential type, the scan window times, and a written abort procedure if process alarms triggered. Not because he was being difficult. Because those were the actual questions the scan raised for someone responsible for production continuity.</p>
-<p>The OT engineer&rsquo;s question was about the SCADA historian and SMB authentication. I had planned a full credentialed scan. He told me the historian could not accept a domain account without a configuration change that required vendor approval. I had not accounted for this. The two-pass approach came from that conversation: a passive asset profile first, then the credentialed scan after the vendor-approved change.</p>
-<p>The safety officer&rsquo;s question caught me most off-guard. She asked who would review changes to safety-instrumented systems. I had not treated SIS differently from standard Level 2 devices in my draft. That was wrong, and she was right to push back. I added a mandatory safety officer review step for any remediation touching a SIS. The program is better for it.</p>
-<p>None of these issues showed up in the policy text. They showed up in conversation. The meeting notes in <code>meeting-notes/</code> exist because those conversations are where the real program gets built.</p>
+<p>My first policy draft was technically coherent and operationally useless. It had the right structure and the right categories, but it would not have survived contact with the environment it described.</p>
+<p>The first approval gate the exercise put in front of me was whether the scan could disrupt production. I did not have a specific answer ready. I had a general one, that I would use a maintenance window. The gate wanted the exact IP addresses to be scanned, the credential type, the scan window times, and a written abort procedure if process alarms triggered. I had not worked through any of those in advance. They were the questions a scan raises for anyone responsible for production continuity, and I had been treating that responsibility as an afterthought.</p>
+<p>The next gate was the SCADA historian, the supervisory control and data acquisition server that stores process history. The OT engineer persona in the exercise raised the historian&rsquo;s authentication. I had planned a full credentialed scan. The scenario surfaced that the historian could not accept a domain account without a configuration change that required vendor approval. I had not accounted for this. The two-pass approach came out of it: a passive asset profile first, then the credentialed scan after the vendor-approved change.</p>
+<p>The safety persona caught me most off guard. It asked who would review changes to safety-instrumented systems, the systems that can take a process to a safe state on their own. I had not treated SIS differently from standard Level 2 devices in my draft. That was a real gap, and the exercise was right to surface it. I added a mandatory safety review step for any remediation touching a SIS.</p>
+<p>None of these issues showed up in the policy text. They showed up when I walked the policy through the simulation&rsquo;s approval flow. The meeting notes in <code>meeting-notes/</code> exist because that walkthrough is where the real program got built.</p>
 
 <hr>
 
 <h2>The Credential Problem</h2>
 <p>I had used Tenable against Windows hosts before and understood the general shape of credentialed scanning. What I had not worked through carefully was the local account authentication behavior.</p>
-<p>The <code>LocalAccountTokenFilterPolicy</code> registry key was new territory for me. Without it set to 1, a non-RID-500 local administrator account authenticates over the network with a filtered token, which means Tenable receives an Access Denied on most of the interesting scan targets. The finding list comes back incomplete in ways that are hard to diagnose because the scan reports as authenticated. The actual authenticated results are just quietly wrong.</p>
-<p>Setting that key and understanding why it was necessary was a piece of Windows internals I had not engaged with before. It also crystallized why just-in-time credentials matter: the scan account has elevated network access during the scan window that should not persist after the scan ends. Create the account before, delete it after.</p>
+<p>The <code>LocalAccountTokenFilterPolicy</code> registry key was new territory for me. Without it set to 1, a local administrator account other than the built-in administrator authenticates over the network with a filtered token, and Tenable receives an Access Denied on most of the interesting scan targets. The built-in administrator is the one Windows identifies by relative identifier (RID) 500. Every other local admin account gets its privileges stripped over the network unless that key changes the behavior.</p>
+<p>The finding list comes back incomplete in ways that are hard to diagnose because the scan reports as authenticated. The actual authenticated results are just quietly wrong.</p>
+<p>Setting that key and understanding why it was necessary was a piece of Windows internals I had not engaged with before. It also crystallized why just-in-time credentials matter. The scan account has elevated network access during the scan window that should not persist after the scan ends. Create the account before, delete it after.</p>
 
 <hr>
 
 <h2>What the Injection Script Showed Me</h2>
-<p>I wrote the injection script to simulate a legacy OT HMI. Each configuration change represents something I had read about in threat advisories: SMBv1 for EternalBlue, NLA disabled for pre-authentication RDP exposure, LmCompatibilityLevel 0 for legacy device compatibility, the shared <code>scada-operator</code> account that never gets rotated, USB autorun for removable media propagation.</p>
-<p>What surprised me was how normal each of these looked in isolation. None of them are the result of negligence. SMBv1 stays on because the HMI vendor&rsquo;s communication stack depends on it. NLA gets disabled because an old application breaks without the workaround. The shared account exists because multiple operators need emergency access and rotating it means touching twenty clipboards. Autorun stays enabled because operators bring configuration files on drives.</p>
-<p>These are operational decisions made by people trying to keep the process running. The vulnerabilities are a side effect of those decisions, not their goal. Writing the script helped me understand why OT hardening is harder than enterprise hardening: the people who created these configurations had legitimate reasons.</p>
+<p>I wrote the injection script to simulate a legacy OT HMI. Each configuration change represents something I had read about in threat advisories. SMBv1, an old version of the Server Message Block file-sharing protocol, left on for the EternalBlue exploit. NLA, Network Level Authentication, disabled on Remote Desktop Protocol (RDP), which lets an unauthenticated attacker reach the login prompt. LmCompatibilityLevel set to 0 for legacy device compatibility. A shared <code>scada-operator</code> account that never gets rotated. USB autorun for removable media.</p>
+<p>What surprised me was how normal each of these looked in isolation. None of them are the result of negligence. SMBv1 stays on because the HMI vendor&rsquo;s communication stack depends on it. NLA gets disabled because an old application breaks without the workaround. The shared account exists because multiple operators need emergency access, and rotating it means touching twenty clipboards. Autorun stays enabled because operators bring configuration files on drives.</p>
+<p>These are operational decisions made by people trying to keep the process running. The vulnerabilities are a side effect of those decisions, not their goal. Writing the script helped me understand why OT hardening is harder than enterprise hardening. The configurations that look like mistakes from the outside usually have a reason.</p>
 
 <hr>
 
 <h2>The Prioritization Gap</h2>
 <p>The raw Tenable output does not know what environment it ran against. A critical finding on a PLC Ethernet adapter gets the same red as a critical finding on a Level 3 historian. In enterprise IT, that is probably fine. In OT, it produces a completely wrong picture of what needs attention first.</p>
-<p>I built the 4-dimension scoring model to close this gap. CVSS contributes 30 percent. Operational impact contributes 30 percent. Zone proximity contributes 25 percent. OT exploitability context contributes 15 percent. The weights feel approximately right for this environment; I would not claim they are universal.</p>
-<p>The LmCompatibilityLevel finding was where the model proved its value. There is no CVE for this. In a pure CVSS-driven program, it would fall to low priority by default. The OT model assigns it high operational impact because a compromised OT account gives process control access, and high zone proximity because the device is at Level 2 with visibility into Level 1. The finding ends up in the high priority tier despite having no assigned CVSS score.</p>
+<p>I built a four-dimension scoring model to close this gap. CVSS contributes 30 percent. Operational impact contributes 30 percent. Zone proximity contributes 25 percent. OT exploitability context contributes 15 percent. The weights feel approximately right for this environment. I would not claim they are universal.</p>
+<p>The LmCompatibilityLevel finding was where the model proved its value. There is no CVE, no Common Vulnerabilities and Exposures identifier, for this. In a pure CVSS-driven program, it would fall to low priority by default. The OT model assigns it high operational impact because a compromised OT account gives process control access, and high zone proximity because the device sits at Level 2 with visibility into Level 1. The finding ends up in the high priority tier despite having no assigned CVSS score.</p>
 <p>That result surprised me a little. It also felt right once I thought through what the finding actually meant in this environment.</p>
 
 <hr>
 
 <h2>The CAB Process</h2>
-<p>Going into the CAB meeting, I thought of it as a gate I had to get through. I came out of it understanding it differently.</p>
-<p>The operations manager conditioned Round 2 on a documented breakglass procedure. He was not being obstructive. He was asking a reasonable question: if we remove the shared admin account, what happens during an emergency? That question had not occurred to me when I scoped the remediation. The condition made the change safer.</p>
-<p>The OT engineer conditioned Round 3 on a protocol audit. He needed confirmation that no Level 1 device was polling the HMI over SMBv1 before the protocol got disabled. That was also a question I should have asked before I scoped the round. The condition was the right call.</p>
-<p>Round 6 was where I had to stop and think the hardest. LmCompatibilityLevel could not be fixed. Three legacy devices on the Level 1 subnet authenticate using LM. Raising the setting would break those connections. The CAB approved Tier 3: compensating controls in place, documented, scheduled for remediation when the Level 1 devices are replaced in Q2 2027.</p>
+<p>Going into the change approval step, the change advisory board (CAB), I thought of it as a gate I had to get through. I came out of it understanding it differently.</p>
+<p>The Round 2 scenario required a documented breakglass procedure, the emergency access path used when normal accounts fail. The question it forced was this: if the shared admin account is removed, what happens during an emergency? That question had not occurred to me when I scoped the remediation. Working through it made the change safer.</p>
+<p>The Round 3 scenario required a protocol audit. I had to confirm that no Level 1 device was polling the HMI over SMBv1 before the protocol got disabled. That was also a question I should have asked before I scoped the round.</p>
+<p>Round 6 was where I had to stop and think the hardest. LmCompatibilityLevel could not be fixed. Three legacy devices on the Level 1 subnet authenticate using LM, the old LAN Manager protocol. Raising the setting would break those connections. The change approval step moved the finding to Tier 3, which in this program means compensating controls in place, documented, and scheduled for remediation when the Level 1 devices are replaced.</p>
 <p>I had not fully internalized what Tier 3 meant until I had to write the compensating controls register entry for it. It is not a workaround and it is not a failure. It is the honest acknowledgment that the correct fix is not currently available, that everything available has been applied, and that the residual risk is tracked with a defined exit condition. Writing that entry was the clearest moment in the whole project.</p>
 
 <hr>
 
 <h2>What the Remediation Rounds Showed Me</h2>
-<p>Most of the remediation rounds went cleanly. The scripts in <code>scripts/remediations/</code> each follow the same pattern: read the current state, make the change, verify the new state. The before/after verification mattered more than I expected, not because the changes were complex but because having the evidence record makes the work real. A change ticket that says &ldquo;disabled SMBv1&rdquo; is less convincing than one that appends PowerShell output showing <code>EnableSMB1Protocol : False</code>.</p>
-<p>Round 6 was different because the script does not change the setting it was tasked with. I had to think carefully about what the script was actually doing: re-enabling the firewall with OT-subnet-scoped rules, enabling NTLM auditing to log every LM authentication event, documenting the constraint. The script exists not to fix the finding but to reduce the attack surface around it and create a paper trail.</p>
+<p>Most of the remediation rounds went cleanly. The scripts in <code>scripts/remediations/</code> each follow the same pattern. Read the current state, make the change, verify the new state. The before-and-after verification mattered more than I expected, not because the changes were complex but because the evidence record makes the work real. A change ticket that says disabled SMBv1 is less convincing than one that appends PowerShell output showing <code>EnableSMB1Protocol : False</code>.</p>
+<p>Round 6 was different because the script does not change the setting it was tasked with. I had to think carefully about what the script was actually doing. It re-enables the firewall with OT-subnet-scoped rules, enables NTLM auditing to log every LM authentication event, and documents the constraint. NTLM is the Windows authentication protocol that LM predates. The script exists not to fix the finding but to reduce the attack surface around it and create a paper trail.</p>
 <p>Writing that script clarified something about compensating controls. The goal is not to pretend the risk is gone. The goal is to make exploitation harder and detection more likely while you wait for the actual fix to become viable.</p>
 
 <hr>
 
 <h2>What I Would Do Differently</h2>
-<p>The asset inventory should have been the first artifact, not the third. I built it after the policy and before the scan, which was better than building it after the scan, but the policy was weaker for not having the inventory as its foundation. Zone classifications and criticality ratings belong in the policy before the policy goes out for stakeholder review.</p>
-<p>The scan authorization document needed to be more specific about the abort procedure earlier. I added specific process alarm thresholds at the operations manager&rsquo;s request during the stakeholder meeting. Those thresholds should have been in the initial draft. Asking someone to sign an authorization with a vague abort procedure is asking them to take on risk you have not quantified.</p>
-<p>And I should have asked the OT engineer about SMBv1 dependencies on the subnet before I scoped Round 3. The protocol audit was the right step; I just should have initiated it rather than waiting for the CAB to surface it.</p>
+<p>The asset inventory should have been the first artifact, not the third. I built it after the policy and before the scan, which was better than building it after the scan, but the policy was weaker for not having the inventory as its foundation. Zone classifications and criticality ratings belong in the policy before the policy goes through an approval flow.</p>
+<p>The scan authorization needed to be more specific about the abort procedure earlier. The stakeholder gate in the exercise forced specific process alarm thresholds that I had not written into the initial draft. Asking someone to sign an authorization with a vague abort procedure is asking them to take on risk that has not been quantified. I should have written the thresholds myself before the gate asked for them.</p>
+<p>And I should have worked through the SMBv1 dependencies on the subnet before I scoped Round 3. The protocol audit was the right step. I just should have initiated it rather than waiting for the exercise to surface it.</p>
 
 <hr>
 
 <h2>What the Program Is Actually For</h2>
 <p>This was a learning exercise run against a simulated environment. The Azure VMs are not production PLCs. The injected vulnerabilities are representative but not the full picture of what an actual OT assessment would find.</p>
-<p>What the program demonstrates is the shape of the decision-making in this domain: where scanning needs authorization before it can proceed, where the remediation is not &ldquo;fix it,&rdquo; where the finding you document rather than patch is the most important entry in the whole register.</p>
-<p>The compensating controls register, the meeting notes, the CAB approvals, the before/after verification outputs: these are not compliance theater. They are how you show your work in an environment where a change gone wrong takes a production line offline. In enterprise IT, the security team owns the patch window. In OT, the security team is a guest in someone else&rsquo;s process. Understanding that distinction is most of what I learned.</p>
+<p>What the program demonstrates is the shape of the decision-making in this domain. Where scanning needs authorization before it can proceed. Where the remediation is not a simple fix. Where the finding you document rather than patch is the most important entry in the whole register.</p>
+<p>The compensating controls register, the meeting notes, the approval gates, the before-and-after verification outputs. None of this is compliance theater. It is how you show your work in an environment where a change gone wrong takes a production line offline. In enterprise IT, the security team owns the patch window. In OT, the security team is a guest in someone else&rsquo;s process. Understanding that distinction is most of what I learned.</p>
 
 <div class="meta">
     <p><strong>Program repository:</strong> <code>ot-ics-vulnerability-management-program/</code></p>
     <p><strong>Frameworks referenced:</strong> ISA/IEC 62443, NIST SP 800-82 Rev. 3, CISA ICS-CERT Advisories</p>
     <p><strong>Environment:</strong> Azure Cyber Range, Tenable.io, Windows Server 2022</p>
 </div>
-
 </main>
 </body>
 </html>
