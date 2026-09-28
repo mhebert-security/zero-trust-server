@@ -28,11 +28,12 @@ pub fn inject(mut response: Response) -> Response {
         concat!(
             "default-src 'self'; ",
             "script-src 'self' 'wasm-unsafe-eval'; ",
-            // 'sha256-…' permits the single inline <style> the tide-glass
-            // report carries. The static-asset guard rejects filenames
-            // containing '/', so the report stylesheet cannot be served as
-            // an external file under /static/internship/.
-            "style-src 'self' 'sha256-WKc/0gz6ei6P8a/LOJuLENLCFPp2c6/2ihQHCOKLgkU='; ",
+            // 'sha256-…' permits the inline <style> blocks the internship
+            // report pages carry. tide-glass and meridian share one report
+            // template; the OT/ICS VMP article carries its own stylesheet.
+            // The static-asset guard rejects filenames containing '/', so
+            // these can't be served as external files under /static/internship/.
+            "style-src 'self' 'sha256-WKc/0gz6ei6P8a/LOJuLENLCFPp2c6/2ihQHCOKLgkU=' 'sha256-poH0xmZwzoB+odv7Cez5jKQgpz8/tmHce8KyLDdGc7k='; ",
             "img-src 'self'; ",
             "font-src 'self'; ",
             "connect-src 'self'; ",
