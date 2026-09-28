@@ -31,54 +31,38 @@
         <p class="lead">I interned at LogN Pacific. This page collects the Windows 11 STIG remediation scripts I wrote there and the threat hunt reports I produced.</p>
 
         <h2 class="rule">STIG Remediations</h2>
-        <div class="proj-list">
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AC-000005.ps1">WN11-AC-000005</a></h3>
-                <p class="tagline">Account lockout duration set to 15 minutes or more.</p>
-            </article>
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AC-000010.ps1">WN11-AC-000010</a></h3>
-                <p class="tagline">Bad logon attempts limited to three or fewer.</p>
-            </article>
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AC-000015.ps1">WN11-AC-000015</a></h3>
-                <p class="tagline">Bad logon counter resets after 15 minutes.</p>
-            </article>
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AC-000020.ps1">WN11-AC-000020</a></h3>
-                <p class="tagline">Password history keeps 24 passwords.</p>
-            </article>
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000500.ps1">WN11-AU-000500</a></h3>
-                <p class="tagline">Application event log size set to 32768 KB or more.</p>
-            </article>
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000505.ps1">WN11-AU-000505</a></h3>
-                <p class="tagline">Security event log size set to 5120000 KB or more.</p>
-            </article>
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000510.ps1">WN11-AU-000510</a></h3>
-                <p class="tagline">System event log size set to 32768 KB or more.</p>
-            </article>
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000515.ps1">WN11-AU-000515</a></h3>
-                <p class="tagline">Application event log access blocked for non-privileged accounts.</p>
-            </article>
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000520.ps1">WN11-AU-000520</a></h3>
-                <p class="tagline">Security event log access blocked for non-privileged accounts.</p>
-            </article>
-            <article class="proj">
-                <h3><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-SO-000005.ps1">WN11-SO-000005</a></h3>
-                <p class="tagline">Built-in administrator account disabled.</p>
-            </article>
-        </div>
+        <table class="stig-table">
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AC-000005.ps1">WN11-AC-000005</a></td><td class="stig-desc">Account lockout duration set to 15 minutes or more.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AC-000010.ps1">WN11-AC-000010</a></td><td class="stig-desc">Bad logon attempts limited to three or fewer.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AC-000015.ps1">WN11-AC-000015</a></td><td class="stig-desc">Bad logon counter resets after 15 minutes.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AC-000020.ps1">WN11-AC-000020</a></td><td class="stig-desc">Password history keeps 24 passwords.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000030.ps1">WN11-AU-000030</a></td><td class="stig-desc">Security group management account events audited.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000500.ps1">WN11-AU-000500</a></td><td class="stig-desc">Application event log size set to 32768 KB or more.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000505.ps1">WN11-AU-000505</a></td><td class="stig-desc">Security event log size set to 5120000 KB or more.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000510.ps1">WN11-AU-000510</a></td><td class="stig-desc">System event log size set to 32768 KB or more.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000515.ps1">WN11-AU-000515</a></td><td class="stig-desc">Application event log access blocked for non-privileged accounts.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-AU-000520.ps1">WN11-AU-000520</a></td><td class="stig-desc">Security event log access blocked for non-privileged accounts.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-CC-000200.ps1">WN11-CC-000200</a></td><td class="stig-desc">Administrator accounts not enumerated during elevation.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-SO-000005.ps1">WN11-SO-000005</a></td><td class="stig-desc">Built-in administrator account disabled.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-SO-000050.ps1">WN11-SO-000050</a></td><td class="stig-desc">Computer account password reset not prevented.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-SO-000055.ps1">WN11-SO-000055</a></td><td class="stig-desc">Machine account password age set to 30 days or less.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-SO-000060.ps1">WN11-SO-000060</a></td><td class="stig-desc">Strong session key required.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-SO-000075.ps1">WN11-SO-000075</a></td><td class="stig-desc">Legal notice shown before console logon.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-UR-000005.ps1">WN11-UR-000005</a></td><td class="stig-desc">&quot;Access Credential Manager as a trusted caller&quot; right unassigned.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-UR-000015.ps1">WN11-UR-000015</a></td><td class="stig-desc">&quot;Act as part of the operating system&quot; right unassigned.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-UR-000045.ps1">WN11-UR-000045</a></td><td class="stig-desc">&quot;Create a token object&quot; right unassigned.</td></tr>
+            <tr><td class="stig-id"><a href="https://github.com/mhebert-security/stig-remediations/blob/master/WN11-UR-000070.ps1">WN11-UR-000070</a></td><td class="stig-desc">&quot;Deny access from the network&quot; includes the Guests group.</td></tr>
+        </table>
 
         <h2 class="rule">Threat Hunts</h2>
         <div class="proj-list">
             <article class="proj">
                 <h3><a href="/internship/tide-glass">Tide Glass</a></h3>
                 <p class="tagline">An LLM agent exfiltrated 2.84 million customer records across three Linux hosts in 52 minutes.</p>
+            </article>
+            <article class="proj">
+                <h3><a href="/internship/meridian">Meridian — Hunt-25-Meridian</a></h3>
+                <p class="tagline">Web application intrusion with active defence interference. Attacker exfiltrated a patient database and established two backdoors; the defence suite caught one.</p>
             </article>
         </div>
     </main>

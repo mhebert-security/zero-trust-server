@@ -94,7 +94,7 @@ pub fn handle(request: &Request, peer: Option<IpAddr>) -> Routed {
 
         // Writing articles — /writing/<slug>.html, plus /writing/ for the
         // index. The bare "/writing" arm above wins for the no-slash route,
-        // so the two never collide. Slugs are matched against the three
+        // so the two never collide. Slugs are matched against the four
         // static essay documents in content::writing_article; an unknown
         // path falls through to the shared 404 below.
         (true, path) if path.starts_with("/writing/") => content::writing_article(path),

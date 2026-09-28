@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meridian Threat Hunt Report Hunt-25-Meridian</title>
+<meta name="description" content="Hunt 25 — Meridian: web application intrusion with active defence interference. An attacker exfiltrated a patient database and planted two backdoors; the defence suite caught one.">
+<style>:root {
+    --bg: #0a0c10;
+    --surface: #111418;
+    --surface2: #181c22;
+    --border: #1e2530;
+    --border-bright: #2a3444;
+    --text: #c8d0dc;
+    --text-dim: #6b7a8d;
+    --text-bright: #e8edf4;
+    --accent: #3b82f6;
+    --accent-dim: #1e3a5f;
+    --red: #ef4444;
+    --red-dim: #3f1515;
+    --amber: #f59e0b;
+    --amber-dim: #3d2a0a;
+    --green: #22c55e;
+    --green-dim: #0f2d1a;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f0f2f5;
+      --surface: #ffffff;
+      --surface2: #f8f9fb;
+      --border: #dde1e8;
+      --border-bright: #c8cdd8;
+      --text: #2d3748;
+      --text-dim: #718096;
+      --text-bright: #1a202c;
+      --accent: #2563eb;
+      --accent-dim: #dbeafe;
+      --red: #dc2626;
+      --red-dim: #fee2e2;
+      --amber: #d97706;
+      --amber-dim: #fef3c7;
+      --green: #16a34a;
+      --green-dim: #dcfce7;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 15px; scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-weight: 300;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .report-header {
+    border-bottom: 1px solid var(--border);
+    padding: 3rem 0 2.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .report-header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(135deg, rgba(59,130,246,0.06) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .header-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+  .case-meta {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    margin-bottom: 1.5rem;
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+  }
+  .case-meta span { display: flex; align-items: center; gap: 0.4rem; }
+  .severity-badge {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    font-weight: 500;
+    padding: 0.2rem 0.6rem;
+    border-radius: 2px;
+    background: var(--red-dim);
+    color: var(--red);
+    border: 1px solid var(--red);
+    letter-spacing: 0.1em;
+  }
+  h1 {
+    font-size: 2.4rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.75rem;
+    max-width: 680px;
+  }
+  .report-subtitle {
+    font-size: 1rem;
+    color: var(--text-dim);
+    font-weight: 300;
+    margin-bottom: 2rem;
+    max-width: 580px;
+  }
+  .header-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    max-width: 640px;
+  }
+  .stat {
+    background: var(--surface);
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 1.4rem;
+    font-weight: 500;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .stat-label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .report-body {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 3rem 2rem 6rem;
+  }
+  .section { margin-bottom: 4rem; }
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-number {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  h2 {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    letter-spacing: 0.02em;
+    margin-bottom: 0.75rem;
+    margin-top: 1.75rem;
+  }
+  p {
+    font-size: 0.9rem;
+    color: var(--text);
+    max-width: 72ch;
+    margin-bottom: 1rem;
+    line-height: 1.75;
+  }
+
+  .timeline {
+    position: relative;
+    padding-left: 1.5rem;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.5rem;
+    bottom: 0.5rem;
+    width: 1px;
+    background: var(--border-bright);
+  }
+  .timeline-event {
+    position: relative;
+    padding: 0 0 2rem 1.5rem;
+  }
+  .timeline-event:last-child { padding-bottom: 0; }
+  .timeline-event::before {
+    content: '';
+    position: absolute;
+    left: -1.5rem;
+    top: 0.5rem;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translateX(-3px);
+    border: 1px solid var(--bg);
+  }
+  .timeline-event.critical::before { background: var(--red); }
+  .timeline-event.warn::before { background: var(--amber); }
+  .event-time {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    margin-bottom: 0.25rem;
+  }
+  .event-title {
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    margin-bottom: 0.35rem;
+  }
+  .event-detail {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+    max-width: 64ch;
+  }
+
+  .findings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 1.5rem 0;
+  }
+  .finding {
+    background: var(--surface);
+    padding: 1.25rem;
+  }
+  .finding-label {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4rem;
+  }
+  .finding-value {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-bright);
+    font-weight: 500;
+    word-break: break-all;
+  }
+  .finding-value.red { color: var(--red); }
+  .finding-value.amber { color: var(--amber); }
+  .finding-value.blue { color: var(--accent); }
+
+  .mitre-grid {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .mitre-row { display: contents; }
+  .mitre-row > * {
+    padding: 0.6rem 1rem;
+    font-size: 0.8rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .mitre-row:nth-child(even) > * { background: var(--surface2); }
+  .mitre-row:last-child > * { border-bottom: none; }
+  .mitre-row:first-child > * {
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-family: var(--mono);
+  }
+  .mitre-id {
+    font-family: var(--mono);
+    color: var(--accent);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .mitre-name { color: var(--text); }
+  .mitre-tactic {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .ioc-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    font-size: 0.8rem;
+  }
+  .ioc-table th {
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.6rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+  .ioc-table td {
+    padding: 0.55rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    vertical-align: top;
+  }
+  .ioc-table tr:nth-child(even) td { background: var(--surface2); }
+  .ioc-table tr:last-child td { border-bottom: none; }
+  .ioc-type {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .ioc-value {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-bright);
+    word-break: break-all;
+  }
+  .ioc-context { font-size: 0.78rem; color: var(--text-dim); }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 1rem 1.25rem;
+    border-radius: 0 3px 3px 0;
+    margin: 1.5rem 0;
+    font-size: 0.85rem;
+    color: var(--text);
+    line-height: 1.7;
+  }
+  .callout.danger { border-color: var(--red); }
+  .callout.warn { border-color: var(--amber); }
+  .callout strong {
+    display: block;
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
+  }
+
+  .attack-chain {
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    padding: 1.5rem 0;
+    margin: 1rem 0;
+  }
+  .chain-step {
+    flex: 1;
+    min-width: 120px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1rem 0.75rem;
+    position: relative;
+    text-align: center;
+  }
+  .chain-step:not(:last-child)::after {
+    content: '>';
+    position: absolute;
+    right: -0.9rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--accent);
+    font-size: 1rem;
+    z-index: 1;
+    background: var(--bg);
+    padding: 0 2px;
+  }
+  .chain-step:not(:first-child) { border-left: none; }
+  .chain-tactic {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
+  }
+  .chain-action {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    line-height: 1.3;
+  }
+  .chain-time {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    color: var(--accent);
+    margin-top: 0.4rem;
+  }
+
+  .rec-table {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    border-collapse: collapse;
+  }
+  .rec-table th {
+    background: var(--surface2);
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.6rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+  .rec-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 0.82rem;
+    vertical-align: top;
+  }
+  .rec-table tr:last-child td { border-bottom: none; }
+  .rec-table tr:nth-child(even) td { background: var(--surface2); }
+  .priority {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 2px;
+    font-weight: 500;
+  }
+  .priority.critical { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
+  .priority.high { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber); }
+  .priority.medium { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
+
+  .cve-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 1.5rem 0;
+  }
+  .cve-header {
+    background: var(--red-dim);
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .cve-id {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--red);
+  }
+  .cve-title {
+    font-size: 0.85rem;
+    color: var(--text-bright);
+    font-weight: 400;
+  }
+  .cve-body {
+    padding: 1.25rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  .cve-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .cve-field { display: flex; flex-direction: column; gap: 0.2rem; }
+  .cve-field-label {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .cve-field-value {
+    font-size: 0.82rem;
+    color: var(--text-bright);
+  }
+  .cve-field-value.mono { font-family: var(--mono); }
+  .cve-description { font-size: 0.85rem; color: var(--text); line-height: 1.7; }
+  .cve-description p { max-width: none; margin-bottom: 0.75rem; font-size: 0.85rem; }
+  .cve-description p:last-child { margin-bottom: 0; }
+
+  .code-block {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    color: var(--text);
+    line-height: 1.6;
+    margin: 1rem 0;
+    white-space: pre;
+  }
+
+  .report-footer {
+    border-top: 1px solid var(--border);
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  @media (max-width: 640px) {
+    h1 { font-size: 1.6rem; }
+    .header-stats { grid-template-columns: repeat(2, 1fr); }
+    .findings-grid { grid-template-columns: 1fr; }
+    .cve-body { grid-template-columns: 1fr; }
+    .attack-chain { flex-direction: column; }
+    .mitre-grid { grid-template-columns: auto 1fr; }
+    .mitre-tactic { display: none; }
+  }
+/* Site navigation prepended to the hosted report so readers can get back to
+   the portfolio. Scoped under .site-nav and styled with the report's own
+   variables, so it keeps the report's dark theme. */
+.site-nav {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    padding: 1.1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.875rem;
+}
+.site-nav .wordmark {
+    color: var(--text-bright);
+    text-decoration: none;
+}
+.site-nav .wordmark .dot {
+    color: var(--accent);
+}
+.site-nav .nav {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+.site-nav .nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+}
+.site-nav .nav a:hover {
+    color: var(--text-bright);
+}
+.site-nav .nav a[aria-current="page"] {
+    color: var(--accent);
+}</style>
+</head>
+<body>
+
+<header class="site-nav">
+    <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+    <nav class="nav" aria-label="Site">
+        <a href="/">index</a>
+        <a href="/projects">projects</a>
+        <a href="/about">about</a>
+        <a href="/internship" aria-current="page">internship</a>
+        <a href="/writing/">writing</a>
+        <a href="/ot-learning/">OT/ICS Learning</a>
+        <a href="/news">news</a>
+        <a href="/contact">contact</a>
+    </nav>
+</header>
+
+<header class="report-header">
+  <div class="header-inner">
+    <div class="case-meta">
+      <span><span class="severity-badge">CRITICAL</span></span>
+      <span>Hunt-25-Meridian</span>
+      <span>6 February 2026 / 02:42 to 05:30 UTC</span>
+      <span>Meridian Estate</span>
+      <span>TLP:AMBER</span>
+    </div>
+    <h1>Meridian<br>Threat Hunt Report</h1>
+    <p class="report-subtitle">Web application intrusion with active defence interference. An attacker exfiltrated a patient database and planted two backdoors; the defence suite caught one.</p>
+    <div class="header-stats">
+      <div class="stat"><span class="stat-value">8</span><span class="stat-label">Findings confirmed</span></div>
+      <div class="stat"><span class="stat-value">2</span><span class="stat-label">Backdoors planted</span></div>
+      <div class="stat"><span class="stat-value">73</span><span class="stat-label">C2 blocks logged</span></div>
+      <div class="stat"><span class="stat-value">1</span><span class="stat-label">Backdoor surviving</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="report-body">
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">01</span><h2>Front Matter and Document Control</h2></div>
+    <table class="ioc-table">
+      <tbody>
+        <tr><td class="ioc-type">Report title</td><td>Hunt 25 — Meridian: Web Application Intrusion with Active Defence Interference</td></tr>
+        <tr><td class="ioc-type">Hunt ID</td><td>Hunt-25-Meridian</td></tr>
+        <tr><td class="ioc-type">Author</td><td>Matt Hebert</td></tr>
+        <tr><td class="ioc-type">Version</td><td>1.0</td></tr>
+        <tr><td class="ioc-type">Date issued (UTC)</td><td>2026-09-26</td></tr>
+        <tr><td class="ioc-type">Classification / handling</td><td>TLP:AMBER — Distribution restricted to SOC and IR team</td></tr>
+        <tr><td class="ioc-type">Distribution</td><td>SOC Lead, IR Team, LOG(N) Pacific Cyber Range</td></tr>
+      </tbody>
+    </table>
+    <h3>Revision history</h3>
+    <table class="ioc-table">
+      <thead><tr><th>Version</th><th>Date (UTC)</th><th>Author</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td>1.0</td><td>2026-09-26</td><td>Matt Hebert</td><td>Initial submission</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">02</span><h2>Executive Summary</h2></div>
+    <p>An external threat actor conducted a targeted intrusion against Meridian's patient-facing web portal between 02:42 and 05:30 UTC on 2026-02-06. The attacker enumerated the application using four tools, identified a vulnerable endpoint, authenticated using credentials stolen directly from the server, and escalated to root. Before leaving, they exfiltrated the full patient database and established two separate backdoors designed to survive the active automated defence suite running on the host.</p>
+    <p>The defence suite detected and neutralised one backdoor but missed the second, which remained active at the close of the window. A network block on the attacker's C2 destination was logged but did not terminate the connection. Patient data left the environment. The incident is not contained.</p>
+    <div class="callout danger"><strong>INCIDENT NOT CONTAINED</strong>Patient data left the environment, and the second backdoor at <code>/opt/meridian/scripts/health_check</code> was still running at the close of the window.</div>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">03</span><h2>Overview Metadata</h2></div>
+    <table class="ioc-table">
+      <tbody>
+        <tr><td class="ioc-type">Hunt type</td><td>Hypothesis-driven</td></tr>
+        <tr><td class="ioc-type">Trigger</td><td>Overnight alert from Meridian's automated defence suite flagging SQLi, SSH backdoor activity, and database exfiltration on a single patient-portal host</td></tr>
+        <tr><td class="ioc-type">Period hunted (UTC)</td><td>2026-02-06 02:42:56 — 2026-02-06 05:30:00</td></tr>
+        <tr><td class="ioc-type">Estate in scope</td><td>ip-10-1-15-67 (10.1.15.67), Ubuntu 22.04, Apache/PHP/MySQL stack</td></tr>
+        <tr><td class="ioc-type">Analyst(s)</td><td>Matt Hebert</td></tr>
+        <tr><td class="ioc-type">Time spent</td><td>~3 hours active analysis</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">04</span><h2>Hypothesis and ABLE Scope</h2></div>
+    <p><strong>Hypothesis:</strong> An external actor exploited a vulnerable PHP endpoint on the Meridian patient portal to gain initial access, harvested credentials from the filesystem, escalated privilege, established persistence, and exfiltrated patient records — and the automated defence suite's telemetry contains sufficient evidence to reconstruct the full kill chain.</p>
+    <h3>ABLE</h3>
+    <table class="ioc-table">
+      <tbody>
+        <tr><td class="ioc-type">Actor</td><td>Unattributed external actor operating from 10.1.134.57</td></tr>
+        <tr><td class="ioc-type">Behaviour</td><td>Web application reconnaissance → LFI/path traversal → credential theft → SSH login → privilege escalation → backdoor installation → database exfiltration → C2 beaconing</td></tr>
+        <tr><td class="ioc-type">Location</td><td>ip-10-1-15-67 — web server, auth logs, MySQL logs, defender telemetry</td></tr>
+        <tr><td class="ioc-type">Evidence</td><td>Apache access logs (MeridianAccess_CL), auth logs (MeridianAuth_CL), audit records (MeridianAudit_CL), defender detections (MeridianDefender_CL), syslog (MeridianSyslog_CL), network logs (MeridianNetwork_CL), MySQL logs (MeridianMySQL_CL), process snapshot (MeridianSnapshot_CL)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">05</span><h2>Threat Intel Inputs</h2></div>
+    <table class="ioc-table">
+      <thead><tr><th>Input</th><th>Source / link</th><th>How it shaped the hunt</th></tr></thead>
+      <tbody>
+        <tr><td>MITRE ATT&amp;CK T1190 — Exploit Public-Facing Application</td><td><a href="https://attack.mitre.org/techniques/T1190/">attack.mitre.org/techniques/T1190/</a></td><td>Anchored initial search to web access logs for SQLi and path traversal patterns</td></tr>
+        <tr><td>MITRE ATT&amp;CK T1552.001 — Credentials In Files</td><td><a href="https://attack.mitre.org/techniques/T1552/001/">attack.mitre.org/techniques/T1552/001/</a></td><td>Directed search toward config file reads following LFI confirmation</td></tr>
+        <tr><td>MITRE ATT&amp;CK T1548.001 — Setuid and Setgid</td><td><a href="https://attack.mitre.org/techniques/T1548/001/">attack.mitre.org/techniques/T1548/001/</a></td><td>Guided search for SUID binary creation and SWEEP removal events</td></tr>
+        <tr><td>MITRE ATT&amp;CK T1071 — Application Layer Protocol</td><td><a href="https://attack.mitre.org/techniques/T1071/">attack.mitre.org/techniques/T1071/</a></td><td>Framed C2 analysis around SSH tunnel reuse rather than novel protocol</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">06</span><h2>Scope, Data Sources and Blind Spots</h2></div>
+    <table class="ioc-table">
+      <thead><tr><th>Data source</th><th>Platform</th><th>Period available</th><th>Confidence in coverage</th></tr></thead>
+      <tbody>
+        <tr><td>MeridianAccess_CL</td><td>Azure Log Analytics (LAW-HuntPractice)</td><td>2026-02-06 02:42 — 05:30 UTC</td><td>High — Apache access log, complete for attacker IP</td></tr>
+        <tr><td>MeridianAuth_CL</td><td>Azure Log Analytics</td><td>2026-02-06 02:42 — 05:30 UTC</td><td>High — sshd auth.log, no gaps observed</td></tr>
+        <tr><td>MeridianAudit_CL</td><td>Azure Log Analytics</td><td>2026-02-06 02:42 — 05:30 UTC</td><td>Medium — auditd cycled at 02:51:39 and 02:53:31; brief interruptions; full coverage resumed by 03:23</td></tr>
+        <tr><td>MeridianDefender_CL</td><td>Azure Log Analytics</td><td>2026-02-06 02:42 — 05:30 UTC</td><td>High — six-service suite active throughout; detections and sweep actions logged</td></tr>
+        <tr><td>MeridianSyslog_CL</td><td>Azure Log Analytics</td><td>2026-02-06 02:42 — 05:30 UTC</td><td>High — rsyslog and kernel messages continuous</td></tr>
+        <tr><td>MeridianNetwork_CL</td><td>Azure Log Analytics</td><td>2026-02-06 02:42 — 05:30 UTC</td><td>Medium — network_connections.txt snapshot only; not a continuous flow log</td></tr>
+        <tr><td>MeridianMySQL_CL</td><td>Azure Log Analytics</td><td>2026-02-06 02:42 — 05:30 UTC</td><td>Medium — general log present; exact export query not recoverable</td></tr>
+        <tr><td>MeridianSnapshot_CL</td><td>Azure Log Analytics</td><td>2026-02-06 05:30 UTC (single snapshot)</td><td>Low — single point-in-time capture only</td></tr>
+      </tbody>
+    </table>
+    <h3>Blind spots</h3>
+    <p><strong>Sysmon killed before intrusion began.</strong> <code>sysmon.service</code> was removed by the first IR sweep at 03:08:19 UTC, before any attacker activity. Process-level telemetry (command lines, parent-child relationships) is absent for the entire attack window. No <code>exec</code> calls, no shell commands, no attacker tool invocations are visible in the logs.</p>
+    <p><strong>Exact SQL injection payload unknown.</strong> No query-level logging survived in MeridianMySQL_CL that captures the specific SQLi string used during initial reconnaissance.</p>
+    <p><strong>Exact database export query unknown.</strong> The mysqldump invocation is visible in the sysmon data captured before the defender sweep, but command arguments (table scope, filters) are not recoverable from surviving logs.</p>
+    <p><strong>First backdoor staging method unknown.</strong> How <code>/tmp/rootbash</code> was written to disk is not evidenced in any surviving log source.</p>
+    <p><strong>Exact credentials unknown.</strong> <code>database.conf</code> contents were not logged; the specific password used for the <code>svc_backup</code> SSH login is not recoverable.</p>
+    <p><strong>C2 channel contents unknown.</strong> The SSH tunnel to 10.1.134.57:43212 is confirmed by network logs but its payload is encrypted and unrecoverable.</p>
+    <p><strong>Network flow log absent.</strong> MeridianNetwork_CL contains only a point-in-time <code>ss</code> snapshot, not continuous flow records. Connection establishment times for the C2 tunnel are inferred, not directly evidenced.</p>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">07</span><h2>Execution</h2></div>
+
+    <h3>7.1 Recon Tool Identification</h3>
+    <p><strong>Question:</strong> What tools did the attacker use to map the web server before touching anything sensitive?</p>
+    <pre class="code-block">MeridianAccess_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where EventTime_t between (datetime(2026-02-06T02:42:00Z) .. datetime(2026-02-06T05:30:00Z))
+| where ClientIp_s == "10.1.134.57"
+| where isnotempty(UserAgent_s) and UserAgent_s != "-"
+| summarize FirstSeen = min(EventTime_t) by UserAgent_s
+| order by FirstSeen asc</pre>
+    <p><strong>Returned:</strong> Four distinct non-null User-Agent strings in order: <code>Mozilla/5.0 (compatible; Nmap Scripting Engine...)</code> at 03:47:32, <code>curl/8.18.0</code> at 03:52:09, <code>WhatWeb/0.6.3</code> at 03:54:54, <code>gobuster/3.8.2</code> at 03:55:05.</p>
+    <p><strong>Read:</strong> Four named recon tools in 8 minutes. Nmap NSE hit HTTP simultaneously with port-level probes (dual-service fingerprint). curl transitioned immediately into targeted manual interaction. WhatWeb fingerprinted the stack. Gobuster ran directory brute-force. No attacker activity before 03:47:32 despite the window opening at 02:42.</p>
+
+    <h3>7.2 Initial Access — Targeted Endpoint</h3>
+    <p><strong>Question:</strong> Which endpoint did the attacker isolate before the gobuster spray?</p>
+    <pre class="code-block">MeridianAccess_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where EventTime_t between (datetime(2026-02-06T03:52:00Z) .. datetime(2026-02-06T03:55:00Z))
+| where ClientIp_s == "10.1.134.57"
+| order by EventTime_t asc
+| project EventTime_t, HttpMethod_s, RequestUri_s, StatusCode_s, UserAgent_s</pre>
+    <p><strong>Returned:</strong> Sequential curl requests — <code>GET /</code> (200), <code>GET /robots.txt</code> (200), <code>GET /config_viewer.php</code> (302), then POST attempts to <code>/index.php</code>, then <code>GET /dashboard.php</code> (200).</p>
+    <p><strong>Read:</strong> The attacker found <code>config_viewer.php</code> before any wordlist scanning, got a 302 (redirect to login), authenticated via <code>index.php</code>, and reached <code>dashboard.php</code>. Manual reconnaissance identified the vulnerable endpoint independently of the gobuster run.</p>
+
+    <h3>7.3 LFI — Files Exfiltrated via config_viewer.php</h3>
+    <p><strong>Question:</strong> What files did the attacker pull through the vulnerable file parameter?</p>
+    <pre class="code-block">MeridianAccess_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where EventTime_t between (datetime(2026-02-06T02:42:00Z) .. datetime(2026-02-06T05:30:00Z))
+| where ClientIp_s == "10.1.134.57"
+| where RequestUri_s contains "config_viewer"
+| where StatusCode_s == "200"
+| order by EventTime_t asc
+| project EventTime_t, RequestUri_s, StatusCode_s</pre>
+    <p><strong>Returned:</strong> Two 200 responses — <code>/config_viewer.php?file=../../../etc/passwd</code> at 04:07:59, <code>/config_viewer.php?file=database.conf</code> at 04:08:34.</p>
+    <p><strong>Read:</strong> Classic LFI sequence. <code>/etc/passwd</code> enumerated local users. <code>database.conf</code> yielded MySQL credentials. Both reads returned HTTP 200, confirming successful file disclosure.</p>
+
+    <h3>7.4 SSH Login — Credential Reuse</h3>
+    <p><strong>Question:</strong> Which account did the attacker SSH in as, and when?</p>
+    <pre class="code-block">MeridianAuth_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where EventTime_t between (datetime(2026-02-06T04:08:34Z) .. datetime(2026-02-06T04:10:00Z))
+| where RawMessage_s contains "Accepted"
+| order by EventTime_t asc
+| project EventTime_t, ProcessName_s, RawMessage_s</pre>
+    <p><strong>Returned:</strong> <code>Accepted password for svc_backup from 10.1.134.57 port 39206 ssh2</code> at 04:09:31.</p>
+    <p><strong>Read:</strong> 57 seconds after reading <code>database.conf</code>, the attacker authenticated as <code>svc_backup</code> via password. The credential was almost certainly lifted from that file. <code>svc_backup</code> is a real pre-existing account, not one the attacker created.</p>
+
+    <h3>7.5 Failed Privilege Escalation Attempts</h3>
+    <p><strong>Question:</strong> What privesc paths did the attacker try before succeeding?</p>
+    <pre class="code-block">MeridianDefender_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where EventTime_t between (datetime(2026-02-06T04:09:31Z) .. datetime(2026-02-06T05:30:00Z))
+| where RawMessage_s has_any ("sudo", "su ", "root", "priv", "escalat", "failed", "denied")
+| order by EventTime_t asc
+| project EventTime_t, EventCategory_s, RawMessage_s</pre>
+    <p><strong>Returned:</strong> <code>sudo -- svc_backup : command not allowed</code> at 04:15:07; repeated SSH login failures against root from 10.1.15.67 and 10.1.134.57 between 04:44 and 04:46.</p>
+    <p><strong>Read:</strong> Two failed paths — sudo denied (not in sudoers), SSH brute-force against root failed (root login disabled). The attacker then pivoted to the pre-planted SUID binary.</p>
+
+    <h3>7.6 SUID Backdoor — /tmp/rootbash</h3>
+    <p><strong>Question:</strong> How did the attacker achieve root, and what removed it?</p>
+    <pre class="code-block">MeridianDefender_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where RawMessage_s contains "rootbash"
+| order by EventTime_t asc
+| project EventTime_t, EventCategory_s, RawMessage_s</pre>
+    <p><strong>Returned:</strong> <code>Killing PID=265440 from /tmp (/tmp/rootbash -p)</code> at 05:05:01; <code>Removed SUID: /tmp/rootbash</code> at 05:05:06.</p>
+    <p><strong>Read:</strong> The attacker executed <code>/tmp/rootbash -p</code> to spawn a root shell via SUID. The IR sweep caught it at the next cycle and terminated the process and removed the SUID bit. The binary had been staged in <code>/tmp</code> prior to the attacker's SSH session — staging method not evidenced in surviving logs.</p>
+
+    <h3>7.7 Second Backdoor — Disguised as Legitimate Service</h3>
+    <p><strong>Question:</strong> Did the attacker plant a second persistence mechanism?</p>
+    <pre class="code-block">MeridianSnapshot_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| take 1</pre>
+    <p><strong>Returned:</strong> Process tree snapshot showing PID 267155 running <code>/opt/meridian/scripts/health_check</code> as root, started at 04:51, parented to PID 1 (init). Exe symlink confirmed: <code>/proc/267155/exe -&gt; /opt/meridian/scripts/health_check</code>.</p>
+    <p><strong>Read:</strong> A Go binary masquerading as a meridian health check script. Root-owned, init-parented, running from a legitimate application directory. The IR sweep flagged it as <code>Non-baseline file in scripts/: health_check</code> at 05:05:06 but did not remove it — the sweep only auto-remediates SUID binaries and temp-directory processes. This process was still running at 05:30.</p>
+
+    <h3>7.8 C2 Beaconing</h3>
+    <p><strong>Question:</strong> Was the second backdoor calling out?</p>
+    <pre class="code-block">MeridianDefender_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where EventTime_t between (datetime(2026-02-06T04:51:00Z) .. datetime(2026-02-06T05:30:00Z))
+| where EventCategory_s == "NETWORK"
+| order by EventTime_t asc
+| project EventTime_t, EventCategory_s, RawMessage_s</pre>
+    <p><strong>Returned:</strong> 73 <code>Blocked exfil to 10.1.134.57:43212 from 10.1.15.67</code> entries from 04:48 onward at regular intervals.</p>
+    <p><strong>Read:</strong> The block rule fired 73 times but the MeridianSyslog_CL kernel log simultaneously showed <code>NETMON_EXFIL</code> packets with <code>ACK PSH</code> data flowing outbound on the same destination. The block logged but did not drop the existing established SSH tunnel. C2 traffic continued throughout the window. The block proves beaconing activity; it does not prove neutralisation.</p>
+
+    <h3>7.9 Database Exfiltration</h3>
+    <p><strong>Question:</strong> Was patient data confirmed exfiltrated?</p>
+    <pre class="code-block">MeridianDefender_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where RawMessage_s has_any ("export", "dump", "patient", "database")
+| order by EventTime_t asc
+| project EventTime_t, EventCategory_s, RawMessage_s</pre>
+    <p><strong>Returned:</strong> <code>Full patient table query</code> (DB category) at 02:58:26; <code>Patient data export from 10.1.134.57</code> (WEB category) at 03:56:28.</p>
+    <p><strong>Read:</strong> The defender flagged a full patient table query and a confirmed data export. This predates the LFI and SSH login — indicating the attacker had some level of database access via the web application (likely SQLi through the authenticated endpoint) before moving to the SSH channel.</p>
+
+    <h3>7.10 Defence Stack Bootstrap Noise</h3>
+    <p><strong>Question:</strong> Is the detection burst at 02:53:31 attacker activity?</p>
+    <pre class="code-block">MeridianDefender_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where EventTime_t &lt; datetime(2026-02-06T03:00:00Z)
+| order by EventTime_t asc
+| project EventTime_t, EventCategory_s, RawMessage_s</pre>
+    <p><strong>Returned:</strong> SSH key modifications, crontab modifications, and two "New systemd service detected" entries at 02:53:31 — all auto-reverted within one second. No attacker activity at this time. First confirmed attacker hit is at 03:47:32.</p>
+    <p><strong>Read:</strong> False positive. The detection burst is the defence stack's own installation process being misread as tampering. The 54-minute gap between 02:53:31 and 03:47:32 with zero attacker activity confirms these are self-generated.</p>
+
+    <h3>7.11 Collateral Damage — Sysmon</h3>
+    <p><strong>Question:</strong> What legitimate service did the first IR sweep remove?</p>
+    <pre class="code-block">MeridianDefender_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where EventTime_t between (datetime(2026-02-06T03:08:00Z) .. datetime(2026-02-06T03:09:00Z))
+| order by EventTime_t asc
+| project EventTime_t, EventCategory_s, RawMessage_s</pre>
+    <p><strong>Returned:</strong> <code>Removed service: sysmon.service</code> at 03:08:20. Cross-referenced with MeridianSyslog_CL: <code>Stopped Sysmon event logger</code> at 03:08:19. Sysmon last event at 03:08:19; never restarted.</p>
+    <p><strong>Read:</strong> The IR sweep removed sysmon — a legitimate process monitoring service — because it was not in the baseline. Sysmon had only started at 02:58:56 as part of the defence stack installation. Its removal 9 minutes later, before any attacker activity, eliminated process-level visibility for the entire intrusion window.</p>
+
+    <h3>7.12 Forensic Capture</h3>
+    <p><strong>Question:</strong> Did the returning admin capture volatile state properly?</p>
+    <pre class="code-block">MeridianAudit_CL
+| where TimeGenerated &gt; ago(400d)
+| where isnotempty(EventTime_t)
+| where EventTime_t between (datetime(2026-02-06T05:22:00Z) .. datetime(2026-02-06T05:31:00Z))
+| where Types_s contains "EXECVE"
+| order by EventTime_t asc</pre>
+    <p><strong>Returned:</strong> Two EXECVE records (AuditSeq 409 and 410) at 05:27:48 and 05:28:24. Argv field: <code>/tmp/avml /tmp/evidence/memory.lime</code>. Both successful (exit=0).</p>
+    <p><strong>Read:</strong> The admin ran <code>avml</code> twice, writing memory captures to <code>/tmp/evidence/memory.lime</code>. Volatile memory was preserved. The memory image may contain the health_check process's runtime state, C2 connection details, and any decrypted channel content.</p>
+
+    <h3>7.13 Dead Ends</h3>
+    <table class="ioc-table">
+      <thead><tr><th>Hypothesis tested</th><th>Query</th><th>Result</th><th>Why rejected</th></tr></thead>
+      <tbody>
+        <tr><td>Attacker activity before 03:47 in access logs</td><td>MeridianAccess_CL filtered to 02:42–03:47, attacker IP</td><td>No results</td><td>Window is clean; first hit confirmed at 03:47:32</td></tr>
+        <tr><td>Exact SQL injection payload in MySQL logs</td><td>MeridianMySQL_CL for SQLi patterns</td><td>Defender detection only; no query text</td><td>MySQL general log did not capture the specific query strings</td></tr>
+        <tr><td>health_check removed by sweep</td><td>MeridianDefender_CL SWEEP category after 05:05</td><td>Only <code>Non-baseline file in scripts/: health_check</code> logged; no removal action</td><td>Sweep has no auto-remediation rule for non-SUID files outside /tmp</td></tr>
+        <tr><td>Service "60" identification</td><td>MeridianSyslog_CL and union across all tables for service 60</td><td>Numeric job ID only; no named service</td><td>Systemd transient job number, not a named service unit</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">08</span><h2>UTC Timeline</h2></div>
+    <table class="ioc-table">
+      <thead><tr><th>Time (UTC)</th><th>Event</th><th>Source</th><th>Evidence ref</th></tr></thead>
+      <tbody>
+        <tr><td class="ioc-type">02:42:56</td><td>Host boot / window opens</td><td>MeridianAuth_CL</td><td>7.10</td></tr>
+        <tr><td class="ioc-type">02:53:31</td><td>Defence stack bootstrap — false positive detections fired and auto-reverted</td><td>MeridianDefender_CL</td><td>7.10</td></tr>
+        <tr><td class="ioc-type">02:58:26</td><td>Full patient table query detected</td><td>MeridianDefender_CL (DB)</td><td>7.9</td></tr>
+        <tr><td class="ioc-type">02:58:56</td><td>Sysmon event logger started</td><td>MeridianSyslog_CL</td><td>7.11</td></tr>
+        <tr><td class="ioc-type">03:08:17</td><td>First IR sweep begins</td><td>MeridianDefender_CL (SWEEP)</td><td>7.11</td></tr>
+        <tr><td class="ioc-type">03:08:19</td><td><strong>Sysmon removed by IR sweep — process visibility lost</strong></td><td>MeridianDefender_CL / MeridianSyslog_CL</td><td>7.11</td></tr>
+        <tr><td class="ioc-type">03:47:32</td><td>Attacker begins recon — nmap NSE hits web server</td><td>MeridianAccess_CL</td><td>7.1</td></tr>
+        <tr><td class="ioc-type">03:52:09</td><td>curl begins manual interaction — GET /, robots.txt, config_viewer.php</td><td>MeridianAccess_CL</td><td>7.2</td></tr>
+        <tr><td class="ioc-type">03:54:54</td><td>WhatWeb fingerprints stack</td><td>MeridianAccess_CL</td><td>7.1</td></tr>
+        <tr><td class="ioc-type">03:55:05</td><td>Gobuster directory brute-force begins</td><td>MeridianAccess_CL</td><td>7.1</td></tr>
+        <tr><td class="ioc-type">03:56:28</td><td>Patient data export confirmed from 10.1.134.57</td><td>MeridianDefender_CL (WEB)</td><td>7.9</td></tr>
+        <tr><td class="ioc-type">04:07:59</td><td>LFI — <code>/etc/passwd</code> read via config_viewer.php</td><td>MeridianAccess_CL</td><td>7.3</td></tr>
+        <tr><td class="ioc-type">04:08:34</td><td>LFI — <code>database.conf</code> read via config_viewer.php</td><td>MeridianAccess_CL</td><td>7.3</td></tr>
+        <tr><td class="ioc-type">04:09:31</td><td>SSH login as <code>svc_backup</code> from 10.1.134.57</td><td>MeridianAuth_CL</td><td>7.4</td></tr>
+        <tr><td class="ioc-type">04:15:07</td><td>sudo attempt by svc_backup — denied (not in sudoers)</td><td>MeridianDefender_CL (AUTH)</td><td>7.5</td></tr>
+        <tr><td class="ioc-type">04:44–04:46</td><td>SSH brute-force against root — failed (root login disabled)</td><td>MeridianDefender_CL (SSH)</td><td>7.5</td></tr>
+        <tr><td class="ioc-type">04:48:28</td><td>Network block fires on outbound to 10.1.134.57:43212 — first entry</td><td>MeridianDefender_CL (NETWORK)</td><td>7.8</td></tr>
+        <tr><td class="ioc-type">04:51:00</td><td><code>/opt/meridian/scripts/health_check</code> running as root (PID 267155)</td><td>MeridianSnapshot_CL</td><td>7.7</td></tr>
+        <tr><td class="ioc-type">05:05:01</td><td>IR sweep kills <code>/tmp/rootbash -p</code> (PID 265440)</td><td>MeridianDefender_CL (SWEEP)</td><td>7.6</td></tr>
+        <tr><td class="ioc-type">05:05:06</td><td>IR sweep removes SUID from <code>/tmp/rootbash</code>; flags health_check as non-baseline; does not remove it</td><td>MeridianDefender_CL (SWEEP)</td><td>7.6 / 7.7</td></tr>
+        <tr><td class="ioc-type">05:22:55</td><td>Admin <code>ubuntu</code> logs in via SSH</td><td>MeridianSyslog_CL</td><td>7.12</td></tr>
+        <tr><td class="ioc-type">05:23:01</td><td>ubuntu escalates to root via <code>sudo -i</code></td><td>MeridianDefender_CL (AUTH)</td><td>7.12</td></tr>
+        <tr><td class="ioc-type">05:27:48</td><td>avml memory capture #1 — <code>/tmp/evidence/memory.lime</code></td><td>MeridianAudit_CL (EXECVE)</td><td>7.12</td></tr>
+        <tr><td class="ioc-type">05:28:24</td><td>avml memory capture #2 — <code>/tmp/evidence/memory.lime</code></td><td>MeridianAudit_CL (EXECVE)</td><td>7.12</td></tr>
+        <tr><td class="ioc-type">05:30:00</td><td>Hunt window closes — health_check still running, C2 active</td><td>MeridianSnapshot_CL</td><td>7.7 / 7.8</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">09</span><h2>Findings</h2></div>
+
+    <h3>F1 — Four-Tool Reconnaissance Chain</h3>
+    <p><strong>State it:</strong> The attacker used four distinct tools (nmap, curl, WhatWeb, gobuster) to map the web server over an 8-minute window starting at 03:47:32 UTC.</p>
+    <p><strong>Show it:</strong> MeridianAccess_CL, <code>ClientIp_s == "10.1.134.57"</code>. User-Agent strings: <code>Mozilla/5.0 (compatible; Nmap Scripting Engine...)</code> first seen 2026-02-06 03:47:32; <code>curl/8.18.0</code> first seen 03:52:09; <code>WhatWeb/0.6.3</code> first seen 03:54:54; <code>gobuster/3.8.2</code> first seen 03:55:05.</p>
+    <p><strong>Interpret it:</strong> The progression is deliberate — passive fingerprint (nmap), manual confirmation (curl), stack identification (WhatWeb), then wordlist coverage (gobuster). The attacker identified <code>config_viewer.php</code> manually via curl before gobuster ran, indicating prior knowledge or rapid manual analysis of the robots.txt or page structure.</p>
+
+    <h3>F2 — LFI via config_viewer.php File Parameter</h3>
+    <p><strong>State it:</strong> The attacker successfully read <code>/etc/passwd</code> and <code>database.conf</code> from the server via an unsanitised <code>file</code> parameter in <code>config_viewer.php</code> at 04:07:59 and 04:08:34 UTC respectively.</p>
+    <p><strong>Show it:</strong> MeridianAccess_CL. <code>GET /config_viewer.php?file=../../../etc/passwd</code> → HTTP 200 at 2026-02-06 04:07:59. <code>GET /config_viewer.php?file=database.conf</code> → HTTP 200 at 2026-02-06 04:08:34.</p>
+    <p><strong>Interpret it:</strong> The <code>file</code> parameter accepts relative path traversal without sanitisation and is not scoped to an allowed directory. <code>database.conf</code> disclosure directly enabled the subsequent SSH login. The 35-second gap between the two reads suggests manual operation, not automated tooling.</p>
+
+    <h3>F3 — Credential Reuse: svc_backup SSH Login</h3>
+    <p><strong>State it:</strong> The attacker authenticated via SSH as <code>svc_backup</code> using a password credential 57 seconds after reading <code>database.conf</code>.</p>
+    <p><strong>Show it:</strong> MeridianAuth_CL. <code>Accepted password for svc_backup from 10.1.134.57 port 39206 ssh2</code> at 2026-02-06 04:09:31. Preceding read: <code>database.conf</code> at 04:08:34.</p>
+    <p><strong>Interpret it:</strong> High confidence the SSH password was sourced from <code>database.conf</code>. The 57-second gap is consistent with manual copy-paste and login. <code>svc_backup</code> is a pre-existing service account, not attacker-created.</p>
+
+    <h3>F4 — Privilege Escalation via Pre-Staged SUID Binary</h3>
+    <p><strong>State it:</strong> The attacker achieved root via <code>/tmp/rootbash -p</code>, a SUID binary pre-staged in <code>/tmp</code> before or during the intrusion.</p>
+    <p><strong>Show it:</strong> MeridianDefender_CL (SWEEP). <code>Killing PID=265440 from /tmp (/tmp/rootbash -p)</code> at 2026-02-06 05:05:01. <code>Removed SUID: /tmp/rootbash</code> at 05:05:06. No log source captures when or how the binary was placed in <code>/tmp</code>.</p>
+    <p><strong>Interpret it:</strong> The binary was present when the attacker needed it, suggesting it was staged either via the web application (SQLi/webshell) or via the LFI/authenticated session before the SSH login. Staging method is a confirmed evidentiary gap. Medium confidence on staging vector.</p>
+
+    <h3>F5 — Persistent Backdoor Surviving Defence Sweep</h3>
+    <p><strong>State it:</strong> A second root-level backdoor at <code>/opt/meridian/scripts/health_check</code> (PID 267155) was active and beaconing at window close, having survived the IR sweep.</p>
+    <p><strong>Show it:</strong> MeridianSnapshot_CL (05:30:00 UTC). PID 267155, user root, started 04:51, parented to init (PID 1), exe symlink <code>/proc/267155/exe -&gt; /opt/meridian/scripts/health_check</code>. MeridianDefender_CL SWEEP at 05:05:06: <code>Non-baseline file in scripts/: health_check</code> — no corresponding kill or removal action.</p>
+    <p><strong>Interpret it:</strong> The binary was deliberately placed in <code>/opt/meridian/scripts/</code> to blend with legitimate application infrastructure. The IR sweep's auto-remediation logic covers SUID binaries and <code>/tmp</code> processes only. A non-SUID binary in an application directory falls outside the cleanup rules. The process survived because the sweep's remediation scope was too narrow. The incident is not contained.</p>
+
+    <h3>F6 — Patient Data Exfiltrated</h3>
+    <p><strong>State it:</strong> The full patient table was queried and patient data was exported to the attacker's IP before the SSH session was established.</p>
+    <p><strong>Show it:</strong> MeridianDefender_CL. <code>Full patient table query</code> (DB) at 2026-02-06 02:58:26. <code>Patient data export from 10.1.134.57</code> (WEB) at 03:56:28.</p>
+    <p><strong>Interpret it:</strong> The 02:58:26 query predates the LFI and SSH login, indicating the attacker had web-application-level database access (likely via SQLi through the authenticated portal) independently of the credential theft chain. Patient data — medical records — left the environment. This is a confirmed data breach requiring regulatory notification assessment.</p>
+
+    <h3>F7 — C2 Channel Active Through Established SSH Tunnel</h3>
+    <p><strong>State it:</strong> The health_check backdoor (and/or the existing SSH session) maintained an active C2 channel to 10.1.134.57:43212 that was logged as blocked but continued to transmit data throughout the window.</p>
+    <p><strong>Show it:</strong> MeridianDefender_CL (NETWORK): 73 <code>Blocked exfil to 10.1.134.57:43212</code> entries from 04:48:28 onward. MeridianSyslog_CL (kernel): concurrent <code>NETMON_EXFIL</code> entries showing outbound TCP packets with <code>ACK PSH</code> data to 10.1.134.57 DPT=43212 from SPT=22. The ACK PSH packets confirm data transmission, not just connection attempts.</p>
+    <p><strong>Interpret it:</strong> The block rule logged but did not drop the connection. The existing SSH tunnel (established before the block rule triggered) was not terminated by the block. Blocking a destination after a session is established does not close that session. The C2 channel remained active.</p>
+
+    <h3>F8 — Defence Stack Bootstrap Generated False Positive Detections</h3>
+    <p><strong>State it:</strong> The detection burst at 02:53:31 UTC represents the defence stack's own installation process, not attacker activity, and the IR sweep it triggered removed legitimate defensive tooling (sysmon).</p>
+    <p><strong>Show it:</strong> MeridianDefender_CL: SSH key modifications, crontab modifications, and "New systemd service detected" at 02:53:31 — all auto-reverted within one second. First confirmed attacker activity: 03:47:32 UTC (54 minutes later). MeridianSyslog_CL: <code>Stopped Sysmon event logger</code> at 03:08:19 — removed by the same sweep cycle.</p>
+    <p><strong>Interpret it:</strong> The IR sweep cannot distinguish attacker-planted services from legitimately installed defensive tooling. Removing sysmon eliminated the only source of process-level telemetry before the attack began. This is a design flaw in the sweep's baseline logic, not an attack technique.</p>
+
+    <h3>Negative Findings</h3>
+    <table class="ioc-table">
+      <thead><tr><th>Looked for</th><th>Where</th><th>Method applied</th><th>Conclusion</th></tr></thead>
+      <tbody>
+        <tr><td>Attacker activity before 03:47:32</td><td>MeridianAccess_CL, attacker IP, 02:42–03:47</td><td>Time-bounded query, all methods</td><td>None found. Window was clean for 65 minutes before first hit</td></tr>
+        <tr><td>Exact SQLi payload</td><td>MeridianMySQL_CL, MeridianAccess_CL</td><td>Pattern search for SQL keywords in URI and DB logs</td><td>Not recoverable. No query-level MySQL log survived</td></tr>
+        <tr><td>Staging of /tmp/rootbash</td><td>All eight tables, all timestamps</td><td>Search for file write, cp, wget, curl to /tmp</td><td>Not evidenced in any surviving log source</td></tr>
+        <tr><td>Second outbound C2 protocol</td><td>MeridianNetwork_CL, MeridianSyslog_CL</td><td>Port and destination analysis beyond 43212</td><td>No additional C2 channels identified</td></tr>
+        <tr><td>Lateral movement to other hosts</td><td>MeridianNetwork_CL, MeridianAuth_CL</td><td>Destination IP analysis for non-attacker addresses</td><td>No evidence of lateral movement; single host confined</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">10</span><h2>Hypothesis Outcome</h2></div>
+    <p><strong>Outcome:</strong> Proved</p>
+    <p><strong>Justification:</strong> All major components of the hypothesis are evidenced. Web application reconnaissance (F1), LFI exploitation (F2), credential theft leading to SSH access (F3), privilege escalation via SUID binary (F4), persistent backdoor (F5), patient data exfiltration (F6), and C2 beaconing (F7) are all confirmed by log evidence. The three stated evidentiary gaps (exact SQLi payload, /tmp/rootbash staging method, exact export query) are confirmed gaps — not disconfirmations. The hypothesis is proved within the limits of available telemetry.</p>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">11</span><h2>ATT&amp;CK Coverage</h2></div>
+    <h3>Observed</h3>
+    <table class="ioc-table">
+      <thead><tr><th>Tactic</th><th>Technique</th><th>ID</th><th>Evidence ref</th></tr></thead>
+      <tbody>
+        <tr><td>Reconnaissance</td><td>Active Scanning</td><td class="ioc-type">T1595</td><td>F1 — nmap, WhatWeb, gobuster UA strings in access logs</td></tr>
+        <tr><td>Initial Access</td><td>Exploit Public-Facing Application</td><td class="ioc-type">T1190</td><td>F2 — LFI via config_viewer.php file parameter</td></tr>
+        <tr><td>Credential Access</td><td>Credentials In Files</td><td class="ioc-type">T1552.001</td><td>F3 — database.conf read; SSH login 57s later</td></tr>
+        <tr><td>Privilege Escalation</td><td>Setuid and Setgid</td><td class="ioc-type">T1548.001</td><td>F4 — /tmp/rootbash -p execution</td></tr>
+        <tr><td>Persistence</td><td>Match Legitimate Name or Location</td><td class="ioc-type">T1036.005</td><td>F5 — health_check in /opt/meridian/scripts/</td></tr>
+        <tr><td>Command and Control</td><td>Application Layer Protocol</td><td class="ioc-type">T1071</td><td>F7 — C2 over SSH tunnel to 43212</td></tr>
+        <tr><td>Collection</td><td>Data from Information Repositories</td><td class="ioc-type">T1213</td><td>F6 — Full patient table query and export</td></tr>
+        <tr><td>Defense Evasion</td><td>Impair Defenses: Disable or Modify Tools</td><td class="ioc-type">T1562.001</td><td>F8 — Sysmon removed by sweep (collateral, not attacker action)</td></tr>
+        <tr><td>Defense Evasion</td><td>Masquerading</td><td class="ioc-type">T1036</td><td>F8 — health_check masquerading as application script; bootstrap noise</td></tr>
+        <tr><td>Impact</td><td>Stored Data Manipulation</td><td class="ioc-type">T1565.001</td><td>F6 — backup.conf tampered</td></tr>
+        <tr><td>Valid Accounts</td><td>Valid Accounts</td><td class="ioc-type">T1078</td><td>F3 — svc_backup is a real pre-existing account</td></tr>
+      </tbody>
+    </table>
+    <h3>Hunted, not observed</h3>
+    <table class="ioc-table">
+      <thead><tr><th>Tactic</th><th>Technique</th><th>ID</th><th>Why it was in scope</th></tr></thead>
+      <tbody>
+        <tr><td>Lateral Movement</td><td>Remote Services</td><td class="ioc-type">T1021</td><td>Single host — no outbound SSH to internal targets found</td></tr>
+        <tr><td>Persistence</td><td>Scheduled Task/Job: Cron</td><td class="ioc-type">T1053.003</td><td>Crontabs were reverted by sweep; no attacker cron entry survived</td></tr>
+        <tr><td>Defense Evasion</td><td>Indicator Removal: Clear Linux Logs</td><td class="ioc-type">T1070.002</td><td>Log continuity appears intact; no evidence of log deletion</td></tr>
+        <tr><td>Exfiltration</td><td>Exfiltration Over Alternative Protocol</td><td class="ioc-type">T1048</td><td>All outbound traffic to attacker IP used SSH/port 22 or 43212 only</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">12</span><h2>Detection and Telemetry Gaps</h2></div>
+    <table class="ioc-table">
+      <thead><tr><th>Gap</th><th>Impact</th><th>Fix</th><th>Owner</th></tr></thead>
+      <tbody>
+        <tr><td>Sysmon removed by IR sweep before intrusion</td><td>No process-level telemetry (command lines, parent-child chains) for entire attack window</td><td>Exclude sysmon.service from IR sweep's service removal list; or rebuild baseline to include it</td><td>IR/Detection Engineering</td></tr>
+        <tr><td>IR sweep's auto-remediation does not cover non-SUID binaries outside /tmp</td><td>health_check backdoor survived sweep and remained active</td><td>Extend sweep to detect and optionally kill non-baseline executables in application directories</td><td>Detection Engineering</td></tr>
+        <tr><td>Network block does not terminate established connections</td><td>C2 tunnel continued after block rule triggered</td><td>Implement stateful connection termination (e.g. iptables ESTABLISHED rule or host-level firewall with state tracking)</td><td>Network/IR</td></tr>
+        <tr><td>No query-level MySQL logging</td><td>SQLi payloads and exact export queries unrecoverable</td><td>Enable MySQL general log or audit plugin and route to Log Analytics</td><td>DBA/Platform</td></tr>
+        <tr><td>MeridianNetwork_CL is point-in-time only</td><td>Connection establishment timestamps inferred, not evidenced</td><td>Replace ss snapshot with continuous netflow or eBPF-based connection logging</td><td>Platform</td></tr>
+        <tr><td>config_viewer.php file parameter unsanitised</td><td>Full filesystem read as web server user</td><td>Implement allowlist of permitted files; remove path traversal capability entirely</td><td>Application Dev</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">13</span><h2>New Detections Authored</h2></div>
+    <table class="ioc-table">
+      <thead><tr><th>Name</th><th>Logic summary</th><th>Data source</th><th>Tuning caveats</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>LFI Attempt via config_viewer.php</td><td>Alert on GET requests to config_viewer.php where URI contains <code>../</code> or absolute path outside webroot</td><td>MeridianAccess_CL</td><td>Will fire on legitimate debug access if developers test locally; exclude internal IPs</td><td>Proposed</td></tr>
+        <tr><td>Outbound SSH to Non-Baseline Destination</td><td>Alert on established outbound connections from port 22 to external IPs not in approved list</td><td>MeridianNetwork_CL / kernel netfilter</td><td>Requires approved destination list; will need tuning for EC2 Instance Connect</td><td>Proposed</td></tr>
+        <tr><td>SUID Binary Created in /tmp</td><td>Alert when defender SWEEP logs <code>Removed SUID</code> — indicates post-facto detection; shift to creation-time detection via auditd <code>chmod +s</code> events</td><td>MeridianAudit_CL</td><td>auditd rule required: <code>-a always,exit -F arch=b64 -S fchmod,chmod -F perm=s</code></td><td>Proposed</td></tr>
+        <tr><td>Non-Baseline Executable in Application Directory</td><td>Alert on MeridianDefender_CL entries containing "Non-baseline file in scripts/" — currently detection-only; promote to automated kill</td><td>MeridianDefender_CL</td><td>Must maintain current application binary hash baseline; redeploy on every app update</td><td>Proposed</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">14</span><h2>Handover to IR</h2></div>
+    <table class="ioc-table">
+      <tbody>
+        <tr><td class="ioc-type">Compromise confirmed</td><td>Yes</td></tr>
+        <tr><td class="ioc-type">Handed to</td><td>IR Team</td></tr>
+        <tr><td class="ioc-type">Time of handover (UTC)</td><td>2026-09-26 (hunt conclusion)</td></tr>
+        <tr><td class="ioc-type">Immediate risks flagged</td><td>1. <code>/opt/meridian/scripts/health_check</code> (PID 267155) still running as root — <strong>manually terminate immediately</strong>. 2. Active C2 channel to 10.1.134.57:43212 — terminate SSH session and apply stateful firewall block. 3. Patient data confirmed exfiltrated — regulatory notification assessment required. 4. <code>svc_backup</code> credentials compromised — rotate immediately. 5. <code>database.conf</code> credentials compromised — rotate MySQL credentials immediately. 6. Memory image at <code>/tmp/evidence/memory.lime</code> — preserve before any reboot.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">15</span><h2>Next-Hunt Leads</h2></div>
+    <table class="ioc-table">
+      <thead><tr><th>Lead</th><th>Why it is worth hunting</th><th>Data needed</th></tr></thead>
+      <tbody>
+        <tr><td>How was /tmp/rootbash staged?</td><td>The SUID binary was present before the attacker used it. Staging method is unaccounted for — could indicate a second access path (webshell, SQLi file write) not yet identified</td><td>MySQL INTO OUTFILE audit logs; web access log analysis for POST to non-standard paths; file integrity monitoring around /tmp write times</td></tr>
+        <tr><td>Was the patient table query at 02:58:26 via SQLi or a separate session?</td><td>This query predates the LFI and SSH session by over an hour. If it was SQLi via the web app, there is a second exploitation path separate from config_viewer.php</td><td>MySQL slow log or audit plugin; MeridianAccess_CL POST body logging (if available); correlation of MySQL pid at 02:58 with web worker pid</td></tr>
+        <tr><td>Are other hosts in the estate reachable from 10.1.15.67?</td><td>Lateral movement was not observed but the attacker had root. The health_check binary's full capability is unknown</td><td>Internal network flow logs; VPC flow logs for 10.1.15.x subnet; auth logs on adjacent hosts</td></tr>
+        <tr><td>Is 10.1.134.57 infrastructure-as-a-service or a compromised host?</td><td>Attribution and infrastructure takedown depend on this</td><td>Passive DNS, WHOIS, threat intel platform enrichment on 10.1.134.57</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-header"><span class="section-number">16</span><h2>Appendices</h2></div>
+    <h3>A. Key Queries</h3>
+    <p>All queries require <code>TimeGenerated &gt; ago(400d)</code> and <code>isnotempty(EventTime_t)</code> due to ingestion date mismatch (data ingested 2026-08-30, event times 2026-02-06). Filter and order by <code>EventTime_t</code> only — never <code>TimeGenerated</code>.</p>
+    <p>Full query set available in hunt session log.</p>
+    <h3>B. Confirmed IOCs</h3>
+    <table class="ioc-table">
+      <thead><tr><th>Type</th><th>Value</th><th>First Seen (UTC)</th><th>Context</th></tr></thead>
+      <tbody>
+        <tr><td class="ioc-type">IP</td><td class="ioc-value">10.1.134.57</td><td>2026-02-06 03:47:32</td><td class="ioc-context">Attacker source IP — recon, SSH login, C2 destination</td></tr>
+        <tr><td class="ioc-type">File</td><td class="ioc-value">/tmp/rootbash</td><td>2026-02-06 05:05:01</td><td class="ioc-context">SUID privesc binary — removed by sweep</td></tr>
+        <tr><td class="ioc-type">File</td><td class="ioc-value">/opt/meridian/scripts/health_check</td><td>2026-02-06 04:51:00</td><td class="ioc-context">Persistent backdoor — still running at 05:30</td></tr>
+        <tr><td class="ioc-type">Endpoint</td><td class="ioc-value">/config_viewer.php</td><td>2026-02-06 03:52:29</td><td class="ioc-context">Vulnerable LFI endpoint</td></tr>
+        <tr><td class="ioc-type">File</td><td class="ioc-value">database.conf</td><td>2026-02-06 04:08:34</td><td class="ioc-context">Credential source — disclosed via LFI</td></tr>
+        <tr><td class="ioc-type">Account</td><td class="ioc-value">svc_backup</td><td>2026-02-06 04:09:31</td><td class="ioc-context">Compromised service account</td></tr>
+        <tr><td class="ioc-type">Destination</td><td class="ioc-value">10.1.134.57:43212</td><td>2026-02-06 04:48:28</td><td class="ioc-context">C2 destination — active SSH tunnel</td></tr>
+      </tbody>
+    </table>
+    <h3>C. References</h3>
+    <p><a href="https://attack.mitre.org/">MITRE ATT&amp;CK Enterprise Matrix</a></p>
+    <p><a href="https://www.splunk.com/en_us/blog/security/peak-threat-hunting-framework.html">PEAK Hunt Framework (Splunk SURGe)</a></p>
+    <p><a href="https://www.betaalvereniging.nl/en/safety/tahiti/">TaHiTI Threat Hunting Methodology</a></p>
+    <p><a href="https://debrief.sanclogic.com/hunts/hunt-25-meridian/index.html">Hunt 25 — Meridian case brief</a></p>
+    <p><a href="https://debrief.sanclogic.com/index.html">LOG(N) Pacific Cyber Range platform</a></p>
+  </section>
+
+</main>
+
+<footer class="report-footer">
+  <span>Hunt 25 / Meridian / Hunt-25-Meridian</span>
+  <span>Meridian Estate / ip-10-1-15-67</span>
+  <span>6 February 2026 / 02:42 to 05:30 UTC</span>
+  <span>8 findings / TLP:AMBER</span>
+</footer>
+
+</body>
+</html>

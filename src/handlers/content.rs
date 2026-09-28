@@ -38,6 +38,7 @@ pub fn internship_page(path: &str) -> Response {
     };
     let html = match slug {
         "tide-glass" => include_str!("../../static/internship/tide-glass.html"),
+        "meridian" => include_str!("../../static/internship/meridian.html"),
         _ => return not_found(),
     };
     html_response(html)
@@ -51,7 +52,7 @@ pub fn writing(_request: &Request) -> Response {
 }
 
 /// Serve a writing article at /writing/<slug>.html.
-/// The three published essays are static HTML documents, not Markdown read at
+/// The four published essays are static HTML documents, not Markdown read at
 /// startup like the project writeups, so each is an explicit arm here. An
 /// unknown slug (a typo, a traversal attempt, a trailing slash) falls through
 /// to the shared 404, exactly like any other miss.
@@ -69,6 +70,9 @@ pub fn writing_article(path: &str) -> Response {
         }
         "cybersecurity-news-aggregator-rust.html" => {
             include_str!("../../static/writing/cybersecurity-news-aggregator-rust.html")
+        }
+        "news-aggregator-article-3.html" => {
+            include_str!("../../static/writing/news-aggregator-article-3.html")
         }
         _ => return not_found(),
     };

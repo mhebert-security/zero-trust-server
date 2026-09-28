@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matthew Hebert · Building a Cybersecurity News Aggregator in Rust: What the Feeds Taught Me</title>
+    <meta name="description" content="Sixteen security feeds, one page, and the failures that kept rewriting the fetcher.">
+    <meta property="og:title" content="Matthew Hebert · Building a Cybersecurity News Aggregator in Rust: What the Feeds Taught Me">
+    <meta property="og:description" content="Sixteen security feeds, one page, and the failures that kept rewriting the fetcher.">
+    <meta property="og:url" content="https://mhebert.dev/writing/news-aggregator-article-3.html">
+    <link rel="icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+    <header class="page-head">
+        <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+        <nav class="nav" aria-label="Site">
+            <a href="/">index</a>
+            <a href="/projects">projects</a>
+            <a href="/about">about</a>
+            <a href="/writing/" aria-current="page">writing</a>
+            <a href="/ot-learning/">OT/ICS Learning</a>
+            <a href="/news">news</a>
+            <a href="/contact">contact</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">Building a Cybersecurity News Aggregator in Rust: What the Feeds Taught Me</h1>
+        <p class="muted"><strong>Published:</strong> <time datetime="2026-09-12">2026-09-12</time> · <strong>Code:</strong> <a href="https://github.com/mhebert-security/news-aggregator">github.com/mhebert-security/news-aggregator</a></p>
+        <div class="writeup">
+<p>I had a web server that no one could reach without proving they were human, and nothing worth reading once they got through.</p>
+<p>The proof of work gate on mhebert.dev exists to keep automated scanners out. A proof of work gate asks a visitor to do a small computation before the site will talk to them. A real person who solves a SHA-256 puzzle to get in, where SHA-256 is a common hash function, deserves something on the other side. So I built a news aggregator that pulls from ten cybersecurity sources every six hours and serves the results behind the gate. No tracking pixels and no JavaScript, just one page of things worth reading, refreshed four times a day.</p>
+<p>The sources I chose are the ones I actually read: NVD for new vulnerability disclosures, the CISA Known Exploited Vulnerabilities catalog, CISA's ICS advisories for operational technology threats, BleepingComputer, Krebs on Security, The Hacker News, Dark Reading, SANS ISC, Schneier on Security, and the r/netsec community feed.</p>
+<p>What follows is what building it actually looked like, which was not what I expected.</p>
+<hr>
+<h2>What an RSS feed is, and why parsing one by hand is interesting</h2>
+<p>An RSS feed is a structured file a website publishes so that other programs can read its content automatically. Think of it as the back door to a news site. Instead of loading the full website with its ads and layout, a feed reader goes to the back door, picks up a standardized list of recent articles, and processes them however it wants.</p>
+<p>The standard for these files is called RSS or Atom, and both are written in XML. XML is a format that organizes information inside tagged brackets, the same family as HTML. A typical article entry in an RSS feed has a title, a link to the full article, a short description, and a publication date, all wrapped in consistent tags. In theory every RSS feed looks the same. In practice they do not, and that gap is where I spent most of my time.</p>
+<p>The feeds I was pulling from were written by different people at different times for different purposes. Some of them are RSS. Some are Atom, which is a different version of the same idea with different tag names and a different way of expressing links. An Atom feed puts its link inside an attribute of a tag rather than inside the tag's text, which means the parser has to look in a different place for the same piece of information. The NVD and CISA feeds are not XML at all. They are JSON, a completely different format that structures information differently.</p>
+<p>What surprised me most was entity references. XML has a way of encoding characters that would otherwise break the file's structure. An ampersand, for example, cannot appear in XML text as a bare character because the parser would think it was starting a special sequence, so it gets encoded as a reference. The library I used for parsing reported these as separate events rather than resolving them inline, which meant my parser had to catch them and decode them manually. A feed that was technically well formed would have handed me raw reference codes where a reader would expect actual text. I wrote a decoder for the five standard XML entities and the numeric forms, and kept anything else verbatim so no text was silently dropped.</p>
+<hr>
+<h2>The budget that broke on day one</h2>
+<p>Every outbound connection the fetcher makes is bounded by time and by size. A feed host that does not respond within ten seconds gets dropped. A response body that exceeds one megabyte gets aborted mid-read, not buffered and then checked. These limits exist because the fetcher runs on a production server and an unbounded read from a hostile or misconfigured source is a simple path to running out of memory.</p>
+<p>The CISA Known Exploited Vulnerabilities catalog broke this immediately.</p>
+<p>The KEV catalog is a JSON file that CISA publishes and continuously updates. It lists every vulnerability that has been observed being actively exploited in the wild, which makes it one of the most operationally useful documents in cybersecurity. It also, at the time I first tried to fetch it, weighed roughly 1.7 megabytes. The general cap I had set was one megabyte. The catalog exceeded it on every pass.</p>
+<p>The catalog is larger than any other source in the feed list by an order of magnitude. Every XML feed, the Reddit RSS, Schneier's Atom, BleepingComputer, all of them fit comfortably within a megabyte. The KEV catalog does not, and it grows every time CISA adds a newly exploited vulnerability.</p>
+<p>My solution was a separate budget constant applied only to that URL. The catalog gets an eight megabyte allowance. Every other source keeps one megabyte. It is a deliberate deviation from a flat cap, scoped as narrowly as the feed list allows. The constants sit at the top of the fetch module with a comment explaining why the deviation exists, because a future reader who removes the special case will break the fetcher.</p>
+<hr>
+<h2>NVD retired its RSS feed and did not tell me</h2>
+<p>The National Vulnerability Database is the authoritative source for CVE records in the United States, where CVE stands for Common Vulnerabilities and Exposures and is the public identifier assigned to each known security flaw. NVD is run by NIST, the National Institute of Standards and Technology, and every serious vulnerability management program uses it. When I first built the aggregator, I pointed it at NVD's RSS export, an XML file NIST published containing recent CVE disclosures.</p>
+<p>NVD retired that RSS export with no warning. The file was simply gone.</p>
+<p>The first sign was that the fetcher completed eight out of ten passes on the initial production run. Two feeds returned nothing. One was Schneier, which I will come to. The other was NVD.</p>
+<p>Fixing NVD meant rewriting how the aggregator talks to that source. NIST had replaced the RSS export with a REST API, which is a different kind of interface entirely. An RSS feed is a file you download. A REST API is a service you query with parameters, and it responds with the specific records matching your query, formatted as JSON.</p>
+<p>The NVD 2.0 API has an additional wrinkle. It orders results by publication date, oldest first, and does not accept a parameter asking it to reverse that order. The newest vulnerabilities sit at the end of the response list. To get the most recent CVEs without downloading the entire catalog, I had to make two requests per pass. One asks for a single result to learn how many records exist in the time window. The other pages directly to the last set of that window.</p>
+<p>The time window rolls with the clock. Each pass covers the trailing seven days, computing its start and end times at the moment it runs. The NVD API requires these timestamps in a specific format with millisecond precision. I had to write a date formatter from scratch, since the rest of the aggregator uses only the standard library and the formatter needed to produce a shape no standard library function generates directly.</p>
+<p>What was two lines pointing at an XML file became over five hundred lines of date math, two-pass fetching, and a narrow JSON parser. The lesson was not that NVD is poorly documented. The API is actually well documented. The lesson was that a source the aggregator depends on can disappear or change shape at any time, and the code has to be ready for a redesign nobody announced.</p>
+<hr>
+<h2>Schneier on Security and the redirect I refused to follow</h2>
+<p>The fetcher does not follow redirects. This is a deliberate constraint. A redirect is when a server responds to a request by saying the thing you want is actually somewhere else, and providing a new address. Most HTTP clients follow these automatically. Mine does not.</p>
+<p>The reason is the domain allowlist. Before the fetcher opens a connection to any server, it checks that the server's address is one of the ten sources in the catalog. If it is not, the connection does not open. Redirects could point anywhere. If the fetcher followed them, a feed could direct it to an address outside the catalog, which would bypass the only egress control the fetcher has. The no-redirect rule is what makes the allowlist meaningful.</p>
+<p>Schneier on Security's feed was returning a 301, the HTTP status code for a permanent redirect. The specific problem was the URL I had in the catalog. Schneier's feed lives at a URL ending with a trailing slash, and I had pointed the catalog at a version without it. The server responded by redirecting to the correct form.</p>
+<p>The fix was one line. I updated the catalog entry to use the URL Schneier's server actually serves, without the redirect. The fetcher then connected directly and fetched the feed.</p>
+<p>What made this interesting was how obvious the failure became once I understood the design. The no-redirect constraint is not an accident. It is what forces me, the person maintaining the catalog, to know the exact canonical address of every source. A fetcher that followed redirects would have hidden the problem and connected to whatever address the redirect pointed to, verified or not. The constraint surfaced an error and forced a correction.</p>
+<hr>
+<h2>Two processes sharing one file</h2>
+<p>The aggregator runs as two separate programs on the same server. A fetcher runs every six hours, pulls from all ten sources, and writes the results into a SQLite database. SQLite is a database format that stores everything in a single file, which made it appealing. The interface between the fetcher and the web server is a file on disk, nothing more complicated than that.</p>
+<p>The web server reads that file and builds the news page from whatever rows the fetcher left. But the server and fetcher are different processes, running under different user accounts with different permissions, and they need to cooperate over a file neither of them fully owns.</p>
+<p>The problem I hit was about how SQLite handles concurrent access. SQLite has a mode called WAL mode, which stands for Write-Ahead Log. In WAL mode, writes go to a separate log file first, and readers can keep reading the main database while a write is in progress. That sounds like exactly what two cooperating processes would want. The catch is that even a read-only client in WAL mode needs brief write access to a small companion file the log uses for coordination. The web server, running under a hardened service account with strict filesystem permissions, did not have write access to that companion file. Every attempt to open the database failed.</p>
+<p>The fix was to switch out of WAL mode. The fetcher now opens the database in the standard mode, which does not require the companion file. The server opens it read-only and gets clean reads. The tradeoff is that the mode change runs once on the first pass after a server update, so there is a brief moment where a database left in WAL mode by an older binary gets migrated. I wrote a test that seeds a database, revokes write permission on its directory, and confirms a read-only open still returns the right rows. That test exists because the failure mode is silent in a way that would be hard to diagnose in production.</p>
+<hr>
+<h2>What I did not get right the first time</h2>
+<p>The first production run of the fetcher retrieved eight out of ten feeds. NVD and Schneier both failed. I knew about both failures within minutes because the fetcher logs every error and exits cleanly, but the logs from a systemd oneshot service require someone to go looking for them.</p>
+<p>What I did not have when those failures appeared was an alert. The fetcher ran, logged two errors, and exited. Nobody was notified. I only found out because I was watching the first pass manually. If I had not been watching, the news page would have appeared to work while two significant sources produced nothing.</p>
+<p>I still do not have an alert. The fetcher logs clearly, and the logs are there, but the system that would tell me something went wrong at three in the morning has not been built yet. A fetcher that fails silently for six hours before the next pass is not a complete monitoring story.</p>
+<hr>
+<h2>The OT tab was empty</h2>
+<p>The OT tab launched with zero items, and the reason took me longer to find than it should have. CISA ICS, the only OT source in the catalog, was returning HTTP 403, the status code for access denied. OT stands for operational technology, the systems that run power plants and factories rather than office computers. The blocker was Akamai, the content delivery network that sits in front of cisa.gov, and it refuses connections from data center IP address ranges on government domains no matter what User-Agent the client sends, where the User-Agent is the header a client uses to identify itself. This was not a configuration problem in the fetcher. It was a policy decision made by the infrastructure standing in front of the source.</p>
+<hr>
+<h2>What the OT feed ecosystem actually looks like</h2>
+<p>I did not find this out until I tried to subscribe to every vendor the field actually reads, and what I found is that the ICS and OT vendor RSS ecosystem is largely dead. ICS stands for industrial control systems. Dragos returns 404, the code for not found, because its feed was removed. Claroty returns 410 Gone, which means the feed was explicitly decommissioned rather than moved. Nozomi returns a redirect to a path that then returns 404, the signature of a blog that migrated to Webflow, a website builder that publishes no feed. Industrial Defender returns 200, the code for success, but the body is a Cloudflare bot challenge rather than XML, where Cloudflare is a content delivery network that tests whether the client is a real browser. SecurityWeek's OT feed sat behind a FeedBurner URL, and FeedBurner is a feed service Google shut down. What the field actually uses is LinkedIn, gated conference proceedings, and email newsletters.</p>
+<hr>
+<h2>Kill the Newsletter</h2>
+<p>Kill the Newsletter is a service that converts email newsletter subscriptions into Atom feeds by giving each feed a unique inbox address. I subscribe to a newsletter with that address, and every email that arrives at it becomes an entry in the feed. I used it for Dragos and Claroty Team82. It works, but it produces items at newsletter cadence rather than article cadence, so its contribution to any given day's feed is often zero.</p>
+<hr>
+<h2>The production fetcher was never updated</h2>
+<p>Even after I fixed the catalog, the OT tab still showed zero. The web server and the fetcher are separate binaries in separate repositories. I had rebuilt and redeployed the web server. The fetcher running on the production host was still the old version, the one that only knew about CISA ICS and had no knowledge of the new OT sources. The binary lives at /opt/cyber-news/cyber_news_fetcher, not /usr/local/bin as I had assumed, and the service file is what holds the real path. Rebuilding the fetcher and deploying it to the right location took the OT tab from zero to twenty items.</p>
+<hr>
+<h2>The KEV catalog moved to GitHub</h2>
+<p>With CISA ICS removed and CISA KEV also blocked by Akamai, I needed an alternative. CISA publishes the KEV catalog to a GitHub organization called cisagov, in a repository called kev-data, and the raw file served from raw.githubusercontent.com is not behind Akamai. The filename is identical to the one CISA serves, so the existing parser logic, which keys on the filename, required no changes. One URL in the catalog changed.</p>
+<hr>
+<h2>The retention window and the slow blogs</h2>
+<p>The last bug I hit was in the retention window. The fetcher prunes the database by removing every item whose publication date is older than seven days. Dale Peterson and Waterfall Security both publish infrequently. On the first pass after the OT fix, the fetcher retrieved ten items from each of them, then the prune ran and removed every item whose publication date was older than a week. Zero items survived despite twenty being retrieved. The fix was to prune on when the fetcher saw the item rather than when the author wrote it, and the two moments are stored as separate timestamps. Items from slow-moving sources now persist through the full retention window.</p>
+<hr>
+<h2>What comes next</h2>
+<p>The catalog is now sixteen sources, and the gaps that mattered are closed. The OT category is live, fed by the sources that still publish rather than the ones that vanished. The KEV catalog reaches the fetcher through GitHub rather than through the Akamai wall in front of cisa.gov. The retention bug that erased slow-moving blogs is fixed.</p>
+<p>What is still genuinely pending is a relevance signal that surfaces the most severe items and cross-source deduplication that merges the same CVE across NVD, the KEV catalog, and a BleepingComputer article within the same news cycle, so the page reads as one event with one severity instead of three separate entries.</p>
+<p>The news page is on <a href="https://mhebert.dev/news">mhebert.dev/news</a>. You already solved a SHA-256 challenge to get this far.</p>
+        </div>
+    </main>
+
+    <footer class="page-footer">
+        served by <code>zero-trust-server</code> · HTTP/1.1 from raw sockets · rustls TLS 1.3 · a proof of work gate · <a href="/transparency">what this server records</a>
+    </footer>
+</body>
+</html>
