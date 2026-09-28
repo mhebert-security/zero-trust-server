@@ -304,6 +304,24 @@ h2.rule::after {
     background: var(--border);
 }
 
+/* Subsection labels inside a section (e.g. "Conducted" / "Authored" under
+   Threat Hunts). Smaller and dimmer than the section header, uppercase,
+   monospace, no hairline of their own. The first label in a section has no
+   top margin beyond the section header's own spacing. */
+.hunt-subhead {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: #6b7280;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 1.5rem 0 0.6rem 0;
+}
+
+.hunt-subhead--first {
+    margin-top: 0;
+}
+
 /* ---------- 6. Project cards (projects) ---------- */
 
 .proj-list {
