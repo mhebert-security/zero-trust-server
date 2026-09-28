@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Threat Hunt: Unauthorized Modbus/TCP Manipulation of a Water Treatment PLC</title>
+<meta name="description" content="Hunt 25 — Modbus: unauthorized Modbus/TCP write operations to a water treatment dosing PLC. A former contractor's unrevoked VPN credentials disabled a safety interlock and zeroed a dosing setpoint.">
+<style>:root {
+    --bg: #0a0c10;
+    --surface: #111418;
+    --surface2: #181c22;
+    --border: #1e2530;
+    --border-bright: #2a3444;
+    --text: #c8d0dc;
+    --text-dim: #6b7a8d;
+    --text-bright: #e8edf4;
+    --accent: #3b82f6;
+    --accent-dim: #1e3a5f;
+    --red: #ef4444;
+    --red-dim: #3f1515;
+    --amber: #f59e0b;
+    --amber-dim: #3d2a0a;
+    --green: #22c55e;
+    --green-dim: #0f2d1a;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f0f2f5;
+      --surface: #ffffff;
+      --surface2: #f8f9fb;
+      --border: #dde1e8;
+      --border-bright: #c8cdd8;
+      --text: #2d3748;
+      --text-dim: #718096;
+      --text-bright: #1a202c;
+      --accent: #2563eb;
+      --accent-dim: #dbeafe;
+      --red: #dc2626;
+      --red-dim: #fee2e2;
+      --amber: #d97706;
+      --amber-dim: #fef3c7;
+      --green: #16a34a;
+      --green-dim: #dcfce7;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 15px; scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-weight: 300;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .report-header {
+    border-bottom: 1px solid var(--border);
+    padding: 3rem 0 2.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .report-header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(135deg, rgba(59,130,246,0.06) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .header-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 2rem;
+  }
+  .case-meta {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    margin-bottom: 1.5rem;
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+  }
+  .case-meta span { display: flex; align-items: center; gap: 0.4rem; }
+  .severity-badge {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    font-weight: 500;
+    padding: 0.2rem 0.6rem;
+    border-radius: 2px;
+    background: var(--red-dim);
+    color: var(--red);
+    border: 1px solid var(--red);
+    letter-spacing: 0.1em;
+  }
+  h1 {
+    font-size: 2.4rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.75rem;
+    max-width: 680px;
+  }
+  .report-subtitle {
+    font-size: 1rem;
+    color: var(--text-dim);
+    font-weight: 300;
+    margin-bottom: 2rem;
+    max-width: 580px;
+  }
+  .header-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    max-width: 640px;
+  }
+  .stat {
+    background: var(--surface);
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 1.4rem;
+    font-weight: 500;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .stat-label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .report-body {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 3rem 2rem 6rem;
+  }
+  .section { margin-bottom: 4rem; }
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-number {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  h2 {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    letter-spacing: 0.02em;
+    margin-bottom: 0.75rem;
+    margin-top: 1.75rem;
+  }
+  p {
+    font-size: 0.9rem;
+    color: var(--text);
+    max-width: 72ch;
+    margin-bottom: 1rem;
+    line-height: 1.75;
+  }
+
+  .timeline {
+    position: relative;
+    padding-left: 1.5rem;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.5rem;
+    bottom: 0.5rem;
+    width: 1px;
+    background: var(--border-bright);
+  }
+  .timeline-event {
+    position: relative;
+    padding: 0 0 2rem 1.5rem;
+  }
+  .timeline-event:last-child { padding-bottom: 0; }
+  .timeline-event::before {
+    content: '';
+    position: absolute;
+    left: -1.5rem;
+    top: 0.5rem;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translateX(-3px);
+    border: 1px solid var(--bg);
+  }
+  .timeline-event.critical::before { background: var(--red); }
+  .timeline-event.warn::before { background: var(--amber); }
+  .event-time {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    margin-bottom: 0.25rem;
+  }
+  .event-title {
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    margin-bottom: 0.35rem;
+  }
+  .event-detail {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+    max-width: 64ch;
+  }
+
+  .findings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 1.5rem 0;
+  }
+  .finding {
+    background: var(--surface);
+    padding: 1.25rem;
+  }
+  .finding-label {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4rem;
+  }
+  .finding-value {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-bright);
+    font-weight: 500;
+    word-break: break-all;
+  }
+  .finding-value.red { color: var(--red); }
+  .finding-value.amber { color: var(--amber); }
+  .finding-value.blue { color: var(--accent); }
+
+  .mitre-grid {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .mitre-row { display: contents; }
+  .mitre-row > * {
+    padding: 0.6rem 1rem;
+    font-size: 0.8rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .mitre-row:nth-child(even) > * { background: var(--surface2); }
+  .mitre-row:last-child > * { border-bottom: none; }
+  .mitre-row:first-child > * {
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-family: var(--mono);
+  }
+  .mitre-id {
+    font-family: var(--mono);
+    color: var(--accent);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .mitre-name { color: var(--text); }
+  .mitre-tactic {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .ioc-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    font-size: 0.8rem;
+  }
+  .ioc-table th {
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.6rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+  .ioc-table td {
+    padding: 0.55rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    vertical-align: top;
+  }
+  .ioc-table tr:nth-child(even) td { background: var(--surface2); }
+  .ioc-table tr:last-child td { border-bottom: none; }
+  .ioc-type {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .ioc-value {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-bright);
+    word-break: break-all;
+  }
+  .ioc-context { font-size: 0.78rem; color: var(--text-dim); }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 1rem 1.25rem;
+    border-radius: 0 3px 3px 0;
+    margin: 1.5rem 0;
+    font-size: 0.85rem;
+    color: var(--text);
+    line-height: 1.7;
+  }
+  .callout.danger { border-color: var(--red); }
+  .callout.warn { border-color: var(--amber); }
+  .callout strong {
+    display: block;
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
+  }
+
+  .attack-chain {
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    padding: 1.5rem 0;
+    margin: 1rem 0;
+  }
+  .chain-step {
+    flex: 1;
+    min-width: 120px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1rem 0.75rem;
+    position: relative;
+    text-align: center;
+  }
+  .chain-step:not(:last-child)::after {
+    content: '>';
+    position: absolute;
+    right: -0.9rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--accent);
+    font-size: 1rem;
+    z-index: 1;
+    background: var(--bg);
+    padding: 0 2px;
+  }
+  .chain-step:not(:first-child) { border-left: none; }
+  .chain-tactic {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
+  }
+  .chain-action {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    line-height: 1.3;
+  }
+  .chain-time {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    color: var(--accent);
+    margin-top: 0.4rem;
+  }
+
+  .rec-table {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    border-collapse: collapse;
+  }
+  .rec-table th {
+    background: var(--surface2);
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.6rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+  .rec-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 0.82rem;
+    vertical-align: top;
+  }
+  .rec-table tr:last-child td { border-bottom: none; }
+  .rec-table tr:nth-child(even) td { background: var(--surface2); }
+  .priority {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 2px;
+    font-weight: 500;
+  }
+  .priority.critical { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
+  .priority.high { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber); }
+  .priority.medium { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
+
+  .cve-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 1.5rem 0;
+  }
+  .cve-header {
+    background: var(--red-dim);
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .cve-id {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--red);
+  }
+  .cve-title {
+    font-size: 0.85rem;
+    color: var(--text-bright);
+    font-weight: 400;
+  }
+  .cve-body {
+    padding: 1.25rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  .cve-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .cve-field { display: flex; flex-direction: column; gap: 0.2rem; }
+  .cve-field-label {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .cve-field-value {
+    font-size: 0.82rem;
+    color: var(--text-bright);
+  }
+  .cve-field-value.mono { font-family: var(--mono); }
+  .cve-description { font-size: 0.85rem; color: var(--text); line-height: 1.7; }
+  .cve-description p { max-width: none; margin-bottom: 0.75rem; font-size: 0.85rem; }
+  .cve-description p:last-child { margin-bottom: 0; }
+
+  .code-block {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    color: var(--text);
+    line-height: 1.6;
+    margin: 1rem 0;
+    white-space: pre;
+  }
+
+  .report-footer {
+    border-top: 1px solid var(--border);
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  @media (max-width: 640px) {
+    h1 { font-size: 1.6rem; }
+    .header-stats { grid-template-columns: repeat(2, 1fr); }
+    .findings-grid { grid-template-columns: 1fr; }
+    .cve-body { grid-template-columns: 1fr; }
+    .attack-chain { flex-direction: column; }
+    .mitre-grid { grid-template-columns: auto 1fr; }
+    .mitre-tactic { display: none; }
+  }
+/* Site navigation prepended to the hosted report so readers can get back to
+   the portfolio. Scoped under .site-nav and styled with the report's own
+   variables, so it keeps the report's dark theme. */
+.site-nav {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    padding: 1.1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.875rem;
+}
+.site-nav .wordmark {
+    color: var(--text-bright);
+    text-decoration: none;
+}
+.site-nav .wordmark .dot {
+    color: var(--accent);
+}
+.site-nav .nav {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+.site-nav .nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+}
+.site-nav .nav a:hover {
+    color: var(--text-bright);
+}
+.site-nav .nav a[aria-current="page"] {
+    color: var(--accent);
+}</style>
+</head>
+<body>
+
+<header class="site-nav">
+    <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+    <nav class="nav" aria-label="Site">
+        <a href="/">index</a>
+        <a href="/projects">projects</a>
+        <a href="/about">about</a>
+        <a href="/internship" aria-current="page">internship</a>
+        <a href="/writing/">writing</a>
+        <a href="/ot-learning/">OT/ICS Learning</a>
+        <a href="/news">news</a>
+        <a href="/contact">contact</a>
+    </nav>
+</header>
+
+<header class="report-header">
+  <div class="header-inner">
+    <div class="case-meta">
+      <span><span class="severity-badge">CRITICAL</span></span>
+      <span>Hunt-25-Modbus</span>
+      <span>4 December 2024 / 01:58 to 03:05 UTC</span>
+      <span>Municipal Water Treatment</span>
+      <span>Simulated environment</span>
+    </div>
+    <h1>Modbus/TCP<br>Threat Hunt</h1>
+    <p class="report-subtitle">Unauthorized Modbus/TCP write operations to a water treatment dosing PLC. A former contractor's unrevoked VPN credentials were used to disable a safety interlock and zero a dosing setpoint.</p>
+    <div class="header-stats">
+      <div class="stat"><span class="stat-value">2</span><span class="stat-label">Unauthorized writes</span></div>
+      <div class="stat"><span class="stat-value">67</span><span class="stat-label">Minutes total</span></div>
+      <div class="stat"><span class="stat-value">1</span><span class="stat-label">Safety interlock disabled</span></div>
+      <div class="stat"><span class="stat-value">1</span><span class="stat-label">Account abused</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="report-body">
+
+  <section class="section">
+
+    <div class="section-header"><span class="section-number">01</span><h2>Introduction</h2></div>
+
+    <p><strong>Published:</strong> 2026-09-28</p>
+
+    <p>This article documents a threat hunt I conducted in a simulated OT (operational technology) cyber range environment. The scenario: a municipal water treatment facility's network monitoring flagged unexpected Modbus/TCP write operations to a dosing PLC outside any maintenance window. A former contractor's VPN credentials had not been revoked. The goal was to reconstruct what happened using telemetry from Microsoft Defender for Endpoint and Defender for IoT, correlate the events into a timeline, and map the activity to MITRE ATT&amp;CK for ICS.</p>
+
+    <p>The people involved are simulated. The tools, the queries, the detection logic, and the gaps are real.</p>
+
+  </section>
+
+  <section class="section">
+
+    <div class="section-header"><span class="section-number">02</span><h2>Why OT Threat Hunting Is Different</h2></div>
+
+    <p>In a standard IT environment, the worst thing most malware does is steal data or encrypt it. In an OT environment, the blast radius extends to physical processes. A correctly timed write to the wrong register on a water treatment PLC can disable a safety interlock on a dosing pump. The pump continues operating. The interlock that would have cut power in an unsafe condition is gone. The HMI still shows nominal values if the attacker zeroes the right register. No alert fires. An operator looking at the screen sees nothing wrong.</p>
+
+    <p>This is the threat model OT networks live under, and it is why Modbus/TCP matters specifically. Modbus is the protocol that sits at the bottom of the Purdue Reference Model, the framework that describes the layers of industrial control networks. Level 0 is the physical process: the actual pumps, valves, and sensors. Level 1 is the PLCs (programmable logic controllers) that translate digital commands into physical actions. Level 2 is the HMIs (human-machine interfaces) and engineering workstations that operators use to view and adjust the process. Modbus/TCP is the language Level 2 uses to talk to Level 1.</p>
+
+    <p>The critical property of Modbus is that it has no authentication. Any device on the network that can reach TCP port 502 on a PLC can send it commands. There is no certificate exchange, no session token, no credential check. The protocol was designed in 1979 for physically isolated factory floors where trust was assumed. In a modern OT environment with VPN access and contractor accounts, that assumption no longer holds.</p>
+
+  </section>
+
+  <section class="section">
+
+    <div class="section-header"><span class="section-number">03</span><h2>The Scenario</h2></div>
+
+    <p>The simulated attacker is a former contractor, <code>contractor_j.smith</code>, whose VPN credentials were not revoked when the engagement ended. At 01:58 UTC on 2024-12-04, the account authenticates to the OT jump host via VPN from an IP address belonging to a non-corporate ASN. The logon type is 10 (RemoteInteractive), the Windows code for RDP.</p>
+
+    <p>From the jump host, the attacker downloads Modbus tooling, installs it silently, writes a Python script to manipulate the target PLC, executes it, creates a notes file, and then deletes all three artifacts before logging off. Start to finish: about 67 minutes.</p>
+
+    <p>The attacker's target is <code>plc-wtp-01</code> at <code>10.10.1.50</code>. The two writes that matter are Function Code 05, which writes a single coil, and Function Code 06, which writes a single register. Coil <code>00001</code> is the safety interlock for dosing pump 2. Setting it to zero disables the interlock. Register <code>40001</code> is the dosing setpoint. Setting it to zero effectively stops dosing while leaving the HMI in a state that may not immediately alarm an operator.</p>
+
+  </section>
+
+  <section class="section">
+
+    <div class="section-header"><span class="section-number">04</span><h2>Detection Methodology: What Tables Reveal What</h2></div>
+
+    <p>Defender for Endpoint surfaces its telemetry across several tables in KQL (Kusto Query Language), the query language used in Microsoft Sentinel and Defender XDR. Each table captures a different layer of host activity.</p>
+
+    <p><code>DeviceFileEvents</code> records every file creation, modification, and deletion on monitored endpoints. For this hunt, I used it to find the initial tooling download, the creation of the notes file, and the cleanup. The key columns are <code>FileName</code>, <code>FolderPath</code>, <code>ActionType</code>, and <code>InitiatingProcessAccountName</code>. Filtering on <code>ActionType == "FileDeleted"</code> with filenames containing "modbus," "interlock," or "plc" is how you catch an attacker covering their tracks. Filtering on <code>ActionType == "FileCreated"</code> for the same terms is how you catch them before that.</p>
+
+    <p><code>DeviceProcessEvents</code> records every process spawn and the full command line. This is where scripted Modbus writes surface. The attacker executed <code>python.exe C:\Users\contractor_j.smith\Desktop\fix_interlock.py</code>. The filename is an attempt at innocuous naming, but the command line of the spawned Python process contains <code>write_coil</code> and <code>write_register</code> if the script does its work inline, and even if the script is cleaned up, the process event record persists in the telemetry. I queried for <code>ProcessCommandLine has_any ("write_coil", "write_register", "pymodbus.client", "WriteMultipleRegisters")</code> to surface this.</p>
+
+    <p><code>DeviceNetworkEvents</code> records successful and failed TCP connections at the endpoint level. Filtering for <code>RemotePort == 502</code> and <code>ActionType == "ConnectionSuccess"</code> from devices that are not HMIs gives you a precise list of unauthorized Modbus conversations. The attacker's Python script connected to <code>10.10.1.50:502</code> at 02:31:48 UTC, and that connection shows up cleanly.</p>
+
+    <p><code>DeviceEvents</code>, when Defender for IoT is deployed with an OT network sensor, captures protocol-level OT activity as distinct action types. This is where <code>ModbusWrite</code> appears as an <code>ActionType</code>, with the <code>AdditionalFields</code> column carrying the Modbus function code, register address, and written value in JSON. This layer of visibility requires the OT sensor to be deployed and calibrated to the network. Without it, you have the network connection from <code>DeviceNetworkEvents</code> but not the register-level detail of what was written.</p>
+
+    <p>The four tables together give you a layered view: file activity (tooling), process activity (execution), network activity (connectivity), and OT protocol activity (the actual write operations). Any one of them could stand alone as a detection signal. Together they produce an unambiguous picture.</p>
+
+  </section>
+
+  <section class="section">
+
+    <div class="section-header"><span class="section-number">05</span><h2>Walking the Timeline</h2></div>
+
+    <p>The event chain runs in nine discrete steps over 67 minutes. What I found instructive was how clearly the attacker's intent shows in the sequence even before examining the OT-level telemetry.</p>
+
+    <p>The VPN logon from a non-corporate ASN at 01:58 UTC is the first signal. Logon type 10 to an OT jump host at 02:00 in the morning from an IP block that does not belong to the organization should be an immediate alert. It was not, in this scenario, because the contractor account still had valid credentials and the VPN ACL had not been updated.</p>
+
+    <p>The tooling download four minutes later confirms intent. <code>ModbusPollSetup.exe</code> is not software that belongs on an OT jump host during off-hours after an engagement has ended. The silent install flags with <code>/VERYSILENT /NORESTART</code> is an attacker trying to avoid prompts, not an operator installing software.</p>
+
+    <p>Twenty-five minutes pass between the silent install and the script execution. That gap likely represents the time spent writing or adapting the Python script. The file <code>fix_interlock.py</code> is named to blend into a plausible operational context, but the name itself is a tell: no legitimate operator writes a Python file called <code>fix_interlock.py</code> during an unauthorized session at 02:31 UTC.</p>
+
+    <p>The execution at 02:31:47 UTC and the network connection one second later at 02:31:48 UTC are nearly simultaneous. The <code>ModbusWrite</code> event recorded by the OT sensor at 02:31:49 UTC, with Function Code 05 and coil <code>00001</code> set to zero, is the moment the interlock is disabled. The register write follows in the same second.</p>
+
+    <p>The notes file at 02:44 UTC is interesting. <code>wtp_notes.txt</code> containing references to "interlock bypass" and "safety override" suggests the attacker was documenting the action, possibly for a third party. It also made the cleanup step non-optional from the attacker's perspective, which is why the deletion at 03:02 UTC covers all three artifacts: the script, the notes file, and the installer.</p>
+
+    <p>The logoff at 03:05 UTC closes a session that, in a real environment with adequate monitoring, should have triggered four separate alerts before it got there.</p>
+
+  </section>
+
+  <section class="section">
+
+    <div class="section-header"><span class="section-number">06</span><h2>MITRE ATT&amp;CK for ICS</h2></div>
+
+    <p>MITRE ATT&amp;CK for ICS is the industrial control systems extension of the standard ATT&amp;CK framework. It catalogs adversary behavior specifically in OT environments, where the tactics and techniques differ from enterprise IT.</p>
+
+    <p>T1078 (Valid Accounts) covers the retained contractor credential. The attacker did not bypass authentication. They used legitimate credentials that should not have existed. This is the most common initial access vector in OT incidents and the one that the most straightforward mitigations address: JIT access, credential review cadences, VPN ACL hygiene.</p>
+
+    <p>T0886 (Remote Services) covers the VPN access to the OT jump host. Remote access to OT environments is a necessary operational feature and a persistent attack surface. The mitigation is not to eliminate remote access but to scope it tightly and monitor it closely.</p>
+
+    <p>T0843 (Program Download) in this context refers to the Modbus tooling download and the Python script. The attacker brought in their own capability rather than using something already on the host.</p>
+
+    <p>T0836 (Modify Parameter) and T0831 (Manipulation of Control) cover the actual Modbus writes. These are the techniques that have physical-process consequences. Modifying a register value or a coil state on a PLC is not a data breach. It is an intervention in a physical system.</p>
+
+    <p>T0872 (Indicator Removal on Host) covers the cleanup phase. The deletion of the script, notes, and installer is the attacker attempting to remove evidence from the endpoint, not from the network or the OT sensor. The telemetry was already written to Defender. The deletion only removes the artifacts, not the records of their existence.</p>
+
+  </section>
+
+  <section class="section">
+
+    <div class="section-header"><span class="section-number">07</span><h2>What the Detection Rules Actually Catch</h2></div>
+
+    <p>The four analytics rules I derived from the hunt each target a different layer. The non-HMI Modbus rule catches network-level violations of the architecture principle that only HMIs and approved engineering workstations should talk to PLCs. The Modbus write opcode rule catches protocol-level writes using function codes 05, 06, 15, and 16, which are the write operations. The process execution rule catches the tooling and scripting on the endpoint. The cleanup rule catches file deletions matching known attacker artifact names.</p>
+
+    <p>None of these rules is perfect in isolation. A process rule keyed on <code>ModbusPoll.exe</code> misses a custom binary. A network rule keyed on port 502 misses Modbus over serial converters. The OT sensor rule requires the sensor to be deployed and calibrated, which is not a given in real OT environments where the network may have no visibility infrastructure at all.</p>
+
+    <p>The thing I did not build and should have is a temporal correlation rule: if a connection to TCP/502 from an engineering workstation is preceded within 30 minutes by a file creation matching tooling patterns, escalate the priority. Individual signals can be explained away. The combination is harder to dismiss.</p>
+
+  </section>
+
+  <section class="section">
+
+    <div class="section-header"><span class="section-number">08</span><h2>What I Would Do Differently</h2></div>
+
+    <p>The hunt methodology I used starts broad and narrows. I queried all four tables up front and then correlated the results. That works in a scenario where you already know the attacker's identity and timeframe. In a real hunt where you have no initial lead, you would want to start with anomaly detection first: which devices talked to TCP/502 that have not done so before? Which accounts logged into the OT jump host after hours? What new processes appeared on engineering workstations in the last 30 days?</p>
+
+    <p>I also spent more time on the process and file tables than on the network table initially, because those are the layers I am most familiar with from IT security work. The network event that confirmed the Modbus connection to <code>10.10.1.50:502</code> was actually the cleanest signal of all, and it would have led me to the Python process through <code>InitiatingProcessFileName</code> faster than I got there by starting from the file table.</p>
+
+    <p>The other gap I noticed: I had no query for <code>SigninLogs</code> or <code>DeviceLogonEvents</code> in my initial plan. The VPN authentication and RDP logon are the first events in the timeline, and I added them to the detection plan after reconstructing the timeline rather than starting there. In a real hunt, the access layer is where you start, not where you end up.</p>
+
+  </section>
+
+  <section class="section">
+
+    <div class="section-header"><span class="section-number">09</span><h2>What This Exercise Taught Me</h2></div>
+
+    <p>OT environments surface something that pure IT security work does not: the gap between visibility and detection. A Defender for Endpoint deployment on the engineering workstation gives you excellent process and file telemetry. Defender for IoT on the network gives you protocol-level OT events. But most OT networks I have read about in post-incident reports had neither. They had no EDR on the engineering workstations because the workstations ran legacy operating systems. They had no OT sensor because deploying passive network monitoring on an OT segment requires coordination with operations that IT security teams often cannot get.</p>
+
+    <p>What this scenario assumes, and what a real deployment often does not have, is that the sensor is already deployed, already calibrated, and already forwarding telemetry into XDR. Getting to that state is the harder problem. The detection engineering comes after.</p>
+
+    <p>The other thing this exercise put in front of me was the physical consequence framing. In an IT hunt, I am thinking about data: what was accessed, what was exfiltrated, what was modified. Here I was thinking about a dosing pump running without its safety interlock. The register value is not a file. The coil state is not a credential. The impact is physical and immediate in a way that data theft is not. That reframe changes how you prioritize the investigation and what "response taken" means. You do not just revoke the account. You put the PLC in a safe state first.</p>
+
+  </section>
+
+</main>
+
+<footer class="report-footer">
+  <span>Hunt 25 / Modbus / Hunt-25-Modbus</span>
+  <span>Municipal Water Treatment / plc-wtp-01 (10.10.1.50)</span>
+  <span>4 December 2024 / 01:58 to 03:05 UTC</span>
+  <span>2 writes / simulated</span>
+</footer>
+
+</body>
+</html>

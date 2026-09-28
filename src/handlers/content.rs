@@ -40,6 +40,7 @@ pub fn internship_page(path: &str) -> Response {
         "tide-glass" => include_str!("../../static/internship/tide-glass.html"),
         "meridian" => include_str!("../../static/internship/meridian.html"),
         "ot-vmp" => include_str!("../../static/internship/ot-vmp.html"),
+        "modbus-wtp-hunt" => include_str!("../../static/internship/modbus-wtp-hunt.html"),
         _ => return not_found(),
     };
     html_response(html)
