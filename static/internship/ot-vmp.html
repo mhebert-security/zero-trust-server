@@ -72,15 +72,15 @@
   .article {
     max-width: 720px;
     margin: 0 auto;
-    padding: 3.5rem 1.5rem 5rem;
+    padding: 3rem 1.5rem 5rem;
   }
   .article h1 {
     font-size: 2rem;
     line-height: 1.2;
-    color: var(--text-bright);
     font-weight: 600;
-    letter-spacing: -0.01em;
-    margin: 0 0 1rem;
+    color: var(--text-bright);
+    letter-spacing: -0.02em;
+    margin: 0 0 1.25rem;
   }
   .article .standfirst {
     font-size: 1.05rem;
@@ -88,19 +88,22 @@
     margin: 0 0 3rem;
   }
   .article h2 {
-    font-size: 1.3rem;
+    font-size: 1.35rem;
+    line-height: 1.3;
+    font-weight: 600;
     color: var(--text-bright);
-    font-weight: 500;
-    margin: 3rem 0 1rem;
     letter-spacing: -0.01em;
+    margin: 3rem 0 1rem;
+  }
+  .article h3 {
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    margin: 2rem 0 0.75rem;
   }
   .article p {
-    margin: 0 0 1.4rem;
-  }
-  .article hr {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: 3rem 0;
+    line-height: 1.65;
+    margin: 0 0 1rem;
   }
   .article code {
     font-family: var(--mono);
@@ -111,9 +114,41 @@
     border-radius: 4px;
     padding: 0.1em 0.4em;
   }
+  .article hr {
+    border: none;
+    border-top: 1px solid rgba(148, 158, 174, 0.25);
+    margin: 3rem 0;
+  }
   .article strong {
     color: var(--text-bright);
     font-weight: 500;
+  }
+  .article table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0 2rem;
+    font-size: 0.9rem;
+  }
+  .article th,
+  .article td {
+    border: 1px solid var(--border);
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  .article th {
+    color: var(--text-bright);
+    background: var(--surface2);
+    font-weight: 500;
+  }
+  .article tr:nth-child(even) td {
+    background: var(--surface2);
+  }
+  .article blockquote {
+    border-left: 3px solid var(--accent);
+    padding: 0.25rem 0 0.25rem 1.25rem;
+    margin: 1.5rem 0;
+    color: var(--text-dim);
   }
   .article .meta {
     margin-top: 3.5rem;
