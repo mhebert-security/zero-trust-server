@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Helpdesk RAG Purple Team Lab</title>
+<meta name="description" content="Building a purple-team RAG lab on Azure: a FastAPI helpdesk chatbot migrated to Azure AI Foundry DeepSeek-R1, 14 hardening labs, v0 baseline complete.">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #111418;
+    --surface2: #181c22;
+    --border: #1e2530;
+    --border-bright: #2a3444;
+    --text: #c8d0dc;
+    --text-dim: #6b7a8d;
+    --text-bright: #e8edf4;
+    --accent: #3b82f6;
+    --accent-dim: #1e3a5f;
+    --red: #ef4444;
+    --red-dim: #3f1515;
+    --amber: #f59e0b;
+    --amber-dim: #3d2a0a;
+    --green: #22c55e;
+    --green-dim: #0f2d1a;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 15px; scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-weight: 300;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Site navigation prepended to the hosted page so readers can get back to
+     the portfolio. Matches the .site-nav header in tide-glass.html. */
+  .site-nav {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    padding: 1.1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.875rem;
+  }
+  .site-nav .wordmark {
+    color: var(--text-bright);
+    text-decoration: none;
+  }
+  .site-nav .wordmark .dot {
+    color: var(--accent);
+  }
+  .site-nav .nav {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+  }
+  .site-nav .nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+  }
+  .site-nav .nav a:hover {
+    color: var(--text-bright);
+  }
+  .site-nav .nav a[aria-current="page"] {
+    color: var(--accent);
+  }
+
+  /* Article prose — a single comfortable reading column. */
+  .article {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 5rem;
+  }
+  .status-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--amber);
+    background: var(--amber-dim);
+    border: 1px solid var(--amber);
+    border-radius: 3px;
+    padding: 0.25rem 0.7rem;
+    margin-bottom: 1.75rem;
+  }
+  .article h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    font-weight: 600;
+    color: var(--text-bright);
+    letter-spacing: -0.01em;
+    margin: 0 0 1.25rem;
+  }
+  .article .meta {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    line-height: 1.9;
+    margin: 0 0 2.5rem;
+  }
+  .article .meta strong {
+    color: var(--text-bright);
+    font-weight: 500;
+  }
+  .article h2 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    letter-spacing: -0.01em;
+    margin: 3rem 0 1rem;
+  }
+  .article p {
+    line-height: 1.65;
+    margin: 0 0 1.4rem;
+  }
+  .article code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    color: var(--text-bright);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1em 0.4em;
+  }
+  .article pre {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+  }
+  .article pre code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    color: var(--text);
+    background: none;
+    border: none;
+    padding: 0;
+  }
+  .article hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 3rem 0;
+  }
+  .article .footnote {
+    font-style: italic;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+</style>
+</head>
+<body>
+
+<header class="site-nav">
+    <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+    <nav class="nav" aria-label="Site">
+        <a href="/">index</a>
+        <a href="/projects">projects</a>
+        <a href="/about">about</a>
+        <a href="/internship" aria-current="page">internship</a>
+        <a href="/writing/">writing</a>
+        <a href="/ot-learning/">OT/ICS Learning</a>
+        <a href="/news">news</a>
+        <a href="/contact">contact</a>
+    </nav>
+</header>
+
+<main class="article">
+
+<p class="status-badge">In Progress</p>
+<h1>Building a Purple-Team RAG Lab on Azure: Where Things Stand</h1>
+<p class="meta"><strong>Project:</strong> helpdesk-rag-purple<br><strong>Date:</strong> September 29, 2026<br><strong>Status:</strong> Infrastructure validated, deployment blocked on RBAC — resuming once permissions land</p>
+
+<p>The goal is simple to state and nontrivial to execute: build an AI-powered helpdesk chatbot on Azure that is intentionally insecure, then attack it and harden it one lab at a time. Fourteen labs. Each one adds a control, confirms the attack works against the unpatched build, then verifies the hardened version blocks it. The output is a KQL detection pack, a hardened reference architecture in Bicep, and a set of lab write-ups that function as portfolio artifacts.</p>
+<p>The project runs on the LOG(N) Pacific Cyber Range under the internship with Josh Makador.</p>
+
+<h2>The Baseline (v0)</h2>
+<p>The application is a FastAPI service that answers employee questions by pulling relevant documents from an Azure AI Search index and passing them as context to a language model. Retrieval is hybrid — keyword plus vector — though the v0 vector path returns a zero vector as a placeholder. Lab 02 replaces that with real embeddings.</p>
+<p>v0 is insecure by design across four surfaces. There is no authentication on the API. The system prompt rides in the request body, which means any caller can override it. Retrieval applies no ACL filter, so any authenticated user can retrieve any document regardless of their actual scope. Session history is stored in a single shared object, so sessions bleed into each other.</p>
+<p>Each of those four gaps is the subject of a lab. The test suite ships with an intentionally failing test — <code>test_two_sessions_are_isolated</code> — that documents the session bleed in v0's docstring and will pass once lab 01 adds real per-session storage.</p>
+<p>The stack: Python 3.12, FastAPI, Azure AI Search, App Insights, Log Analytics, Defender for Cloud AI, Azure Key Vault, Bicep for infrastructure.</p>
+
+<h2>The Model Swap</h2>
+<p>The original design called for Azure OpenAI GPT-4o. The more interesting path is DeepSeek-R1 through Azure AI Foundry's serverless endpoint. Microsoft added DeepSeek-R1 to the model catalog; you call it through the Azure AI Inference SDK, pay per token with no deployment overhead, and the traffic stays inside your Azure subscription.</p>
+<p>That last point matters for the lab program. If the model call left the Azure perimeter — say, to <code>api.deepseek.com</code> directly — the Azure-native guardrails would lose visibility. Prompt Shield and Content Safety intercept at the application layer, not the model layer, so they need to see the traffic. With the Foundry serverless endpoint, they still do. All 14 labs stay intact with no architecture changes.</p>
+<p>The swap in code was one function in <code>app/src/api/main.py</code>. The <code>_call_model</code> function went from:</p>
+<pre><code>client = AzureOpenAI(
+    azure_endpoint=endpoint,
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-06-01"),
+)
+completion = client.chat.completions.create(model=deployment, messages=messages)</code></pre>
+<p>to:</p>
+<pre><code>client = ChatCompletionsClient(
+    endpoint=endpoint,
+    credential=AzureKeyCredential(key),
+)
+completion = client.complete(model=model, messages=messages)</code></pre>
+<p>The <code>azure-ai-inference</code> SDK's stable release hasn't cleared 1.0.0 yet — pip resolves to <code>1.0.0b9</code> — so the requirements pin is <code>&gt;=1.0.0b9</code>. A constraint of <code>&gt;=1.0.0</code> would fail silently on install. The dead <code>openai</code> dependency came out of requirements at the same time.</p>
+<p>Semgrep found zero issues. Bandit found zero issues. Pytest runs 1 pass, 1 intentional fail.</p>
+
+<h2>The Infrastructure</h2>
+<p><code>deploy.v1.bicep</code> replaces the Azure OpenAI module from v0 with three new resources: an Azure AI Foundry Hub, a Project under it, and a DeepSeek-R1 serverless endpoint under the project. The App Service app settings swap from <code>AZURE_OPENAI_ENDPOINT</code> and <code>AZURE_OPENAI_DEPLOYMENT</code> to <code>AZURE_AI_FOUNDRY_ENDPOINT</code>, <code>AZURE_AI_FOUNDRY_KEY</code>, and <code>AZURE_AI_FOUNDRY_MODEL</code>. The endpoint key lands in Key Vault as <code>foundry-key</code>, same pattern as the rest of the secrets.</p>
+<p><code>az bicep build</code> passes clean — two BCP081 warnings about types not yet available in the target API version, no errors.</p>
+
+<h2>The Current Blocker</h2>
+<p>The logged-in account (<code>887008806&hellip;@lognpacific.com</code>) has no RBAC role on the Cyber Range 3 subscription. <code>az group create</code> and <code>az deployment group create</code> both return <code>AuthorizationFailed</code>. The IAM page confirms it: zero role assignments for this account on subscription <code>4380de62</code>.</p>
+<p>The fix is a Contributor assignment from someone who already has Owner on the subscription — in this case, Josh. Thirty seconds in the portal. Once that lands, the deployment resumes from step 5 with no rework: the Bicep is written, validated, and committed; the resume command is staged.</p>
+
+<h2>What Comes Next</h2>
+<p>Immediately after the deployment unblocks: the corpus seeds into Azure AI Search via <code>infra/scripts/seed-corpus.sh</code>, the <code>.env</code> gets populated from deployment outputs, the app starts locally, and <code>POST /api/chat</code> returns a live DeepSeek-R1 answer pulling from the helpdesk corpus. That's the first end-to-end test.</p>
+<p>Then the lab sequence begins. Lab 01 fixes session isolation — the intentionally failing test should pass once that ships. Lab 02 wires up real embeddings (<code>text-embedding-3-small</code> from Azure OpenAI, isolated to <code>search.py</code>, cheap enough to ignore in cost). Lab 03 adds Content Safety and Prompt Shield, which sets up the guardrail bypass that lab 04 then tests.</p>
+<p>The attack phases are the point. Each control only counts if the attack succeeds against the unpatched version first. A detection rule only counts if the benign replay runs clean. Documenting both is what makes the lab write-ups credible.</p>
+
+<hr>
+
+<p class="footnote">All work runs in the isolated LOG(N) Pacific Cyber Range subscription. Synthetic corpus only. No real employee data, no production APIs.</p>
+
+</main>
+</body>
+</html>
