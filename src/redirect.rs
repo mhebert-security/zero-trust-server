@@ -134,11 +134,9 @@ fn respond(req: &Request, cfg: &RedirectConfig) -> Response {
         return serve_token(webroot, token);
     }
 
-    let host = match req.headers.get("host").map(String::as_str) {
-        Some(h) if valid_host(h) => h.to_string(),
-        _ => cfg.public_host.clone(),
-    };
-    redirect_to_https(&host, req.path.as_str(), Some(&cfg.public_host))
+    // Pin the redirect to the configured public host. The Host header is
+    // attacker-controlled and must never reach the Location header.
+    redirect_to_https(&cfg.public_host, req.path.as_str(), Some(&cfg.public_host))
 }
 
 /// A 301 Moved Permanently to the HTTPS equivalent of `path` on `host`.
@@ -232,8 +230,9 @@ fn safe_target(path: &str) -> &str {
     path
 }
 
-/// A Host header value we are willing to build an https:// URL for:
-/// ASCII hostname (optionally with :port) or bracketed IPv6.
+/// Reject control bytes and garbage in a Host header value. Test-only now:
+/// the redirect pins to the public host and never reflects the Host header.
+#[cfg(test)]
 fn valid_host(host: &str) -> bool {
     !host.is_empty()
         && host.len() <= 255
