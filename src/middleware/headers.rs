@@ -132,5 +132,19 @@ pub fn inject(mut response: Response) -> Response {
         "same-origin".to_string(),
     ));
 
+    // Cache-Control for HTML responses only. Gated content must not be
+    // cached by intermediaries or the browser; static assets (CSS, favicon)
+    // keep their own caching, so text/html gets no-store and nothing else.
+    if response
+        .headers
+        .iter()
+        .any(|(name, value)| name == "Content-Type" && value.starts_with("text/html"))
+    {
+        response.headers.push((
+            "Cache-Control".to_string(),
+            "no-store, no-cache, must-revalidate".to_string(),
+        ));
+    }
+
     response
 }
