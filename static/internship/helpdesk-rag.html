@@ -217,7 +217,7 @@ completion = client.complete(model=model, messages=messages)</code></pre>
 <p><code>az bicep build</code> passes clean — two BCP081 warnings about types not yet available in the target API version, no errors.</p>
 
 <h2>The Current Blocker</h2>
-<p>The logged-in account (<code>887008806&hellip;@lognpacific.com</code>) has no RBAC role on the Cyber Range 3 subscription. <code>az group create</code> and <code>az deployment group create</code> both return <code>AuthorizationFailed</code>. The IAM page confirms it: zero role assignments for this account on subscription <code>4380de62</code>.</p>
+<p>The logged-in account (<code>[ACCOUNT-UPN-REDACTED]</code>) has no RBAC role on the Cyber Range 3 subscription. <code>az group create</code> and <code>az deployment group create</code> both return <code>AuthorizationFailed</code>. The IAM page confirms it: zero role assignments for this account on subscription <code>[SUBSCRIPTION-ID-REDACTED]</code>.</p>
 <p>The fix is a Contributor assignment from someone who already has Owner on the subscription — in this case, Josh. Thirty seconds in the portal. Once that lands, the deployment resumes from step 5 with no rework: the Bicep is written, validated, and committed; the resume command is staged.</p>
 
 <h2>What Comes Next</h2>
