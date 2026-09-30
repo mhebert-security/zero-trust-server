@@ -41,7 +41,7 @@ quick-xml = { version = "0.42.0", default-features = false }
 # needs no system SQLite development package (matching the project's
 # self-contained builds on the NixOS host).
 rusqlite = { version = "0.40.2", features = ["bundled"] }
-rustls = { version = "0.23", features = ["prefer-post-quantum"] }
+rustls = { version = "0.23.45", features = ["prefer-post-quantum"] }
 rustls-pemfile = "2.0"
 # The client half of rustls needs a root store. webpki-roots ships Mozilla's
 # set as static data in the same pki-types format rustls already uses, so the
