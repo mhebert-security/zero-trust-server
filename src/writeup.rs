@@ -353,7 +353,7 @@ mod tests {
         let pages = load(&dir).expect("content directory loads");
         let expected = [
             "modbus-dnp3-traffic-analysis",
-            "sigma-detections-attck",
+            "sigma-rules",
             "yara-rules-malware-detection",
             "zero-trust-server",
         ];

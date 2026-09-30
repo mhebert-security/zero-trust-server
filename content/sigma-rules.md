@@ -1,4 +1,4 @@
-# sigma-detections-attck
+# sigma-rules
 
 A detection rule is only as trustworthy as the framework that names what it
 caught. Every rule in this repo maps to a MITRE ATT&CK technique, so a hit
@@ -67,6 +67,6 @@ passes, the rule moves off experimental and the coverage matrix grows by one.
 ## links
 
 The repository is
-[github.com/mhebert-security/sigma-detections-attck](https://github.com/mhebert-security/sigma-detections-attck),
+[github.com/mhebert-security/sigma-rules](https://github.com/mhebert-security/sigma-rules),
 and its contributing guide names the gates a rule must pass to leave the
 experimental pile.
