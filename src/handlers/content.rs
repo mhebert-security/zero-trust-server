@@ -142,6 +142,9 @@ pub fn ot_learning(path: &str) -> Response {
         "module-4-standards/article-9-nerc-cip.html" => {
             include_str!("../../static/ot-learning/module-4-standards/article-9-nerc-cip.html")
         }
+        "module-4-standards/article-9-companion-cip-002.html" => {
+            include_str!("../../static/ot-learning/module-4-standards/article-9-companion-cip-002.html")
+        }
 
         "module-5-medical-devices/" | "module-5-medical-devices/index.html" => {
             include_str!("../../static/ot-learning/module-5-medical-devices/index.html")
