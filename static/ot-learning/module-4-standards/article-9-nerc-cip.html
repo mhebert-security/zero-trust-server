@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Matthew Hebert · NERC CIP for Security Practitioners: What You Actually Need to Know</title>
-    <meta name="description" content="CIP-002 through CIP-014, how a BES Cyber System is classified, and what an audit looks like.">
+    <meta name="description" content="NERC CIP is the mandatory cybersecurity standard for the North American Bulk Electric System. Here is what it actually requires, from asset categorization to the evidence an auditor asks for.">
     <meta property="og:title" content="Matthew Hebert · NERC CIP for Security Practitioners: What You Actually Need to Know">
-    <meta property="og:description" content="CIP-002 through CIP-014, how a BES Cyber System is classified, and what an audit looks like.">
+    <meta property="og:description" content="NERC CIP is the mandatory cybersecurity standard for the North American Bulk Electric System. Here is what it actually requires, from asset categorization to the evidence an auditor asks for.">
     <meta property="og:url" content="https://mhebert.dev/ot-learning/module-4-standards/article-9-nerc-cip.html">
     <link rel="icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/style.css">
@@ -27,10 +27,64 @@
 
     <main>
         <h1 class="page-title">NERC CIP for Security Practitioners: What You Actually Need to Know</h1>
-        <p class="muted">This article is in progress. Check back or follow on Substack for the published version.</p>
-
-        <h2 class="rule">companion project</h2>
-        <p class="muted">A CIP-002 asset classification exercise for a fictional bulk electric system.</p>
+        <p class="muted"><strong>Published:</strong> <time datetime="2026-10-02">2026-10-02</time> · <strong>Module:</strong> Module 4, Article 9: Standards and Compliance · <strong>Code:</strong> <a href="https://github.com/mhebert-security/ics-standards-lab">github.com/mhebert-security/ics-standards-lab</a></p>
+        <div class="writeup">
+<hr>
+<p>IEC 62443 gives you a framework. NERC CIP gives you a mandate. The difference matters before you touch a single control.</p>
+<p>NERC CIP is the mandatory cybersecurity standard set for the North American Bulk Electric System. It is not a framework you can adopt selectively. It is a compliance regime with prescriptive requirements, regional audits, and real penalties. In the U.S., FERC can assess up to $1 million per day per violation. Actual penalties vary, but they are not theoretical.</p>
+<h2>Who It Applies To</h2>
+<p>NERC CIP applies to registered entities that own or operate BES assets: transmission owners and operators, balancing authorities, reliability coordinators, generation owners and operators, and others. Registration, not asset type alone, determines applicability. The scope question is whether you are a registered entity under NERC's reliability standards. If you are, CIP applies to you.</p>
+<p>The standards run from CIP-002 through CIP-014 and are versioned. You need to know which version is currently in force in your region, because NERC amends standards on a rolling basis and transition periods exist.</p>
+<h2>The Standards and What They Cover</h2>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>Standard</th><th>Focus</th></tr>
+</thead>
+<tbody>
+<tr><td>CIP-002</td><td>Asset categorization: High, Medium, or Low impact</td></tr>
+<tr><td>CIP-003</td><td>Security management controls and low-impact requirements</td></tr>
+<tr><td>CIP-004</td><td>Personnel training, awareness, and access authorization</td></tr>
+<tr><td>CIP-005</td><td>Electronic Security Perimeter and remote access</td></tr>
+<tr><td>CIP-006</td><td>Physical Security Perimeter controls</td></tr>
+<tr><td>CIP-007</td><td>System security: ports, patching, malware, logging, accounts</td></tr>
+<tr><td>CIP-008</td><td>Incident response planning and reporting</td></tr>
+<tr><td>CIP-009</td><td>Recovery plans and exercises</td></tr>
+<tr><td>CIP-010</td><td>Configuration management and vulnerability assessments</td></tr>
+<tr><td>CIP-011</td><td>BES Cyber System Information protection</td></tr>
+<tr><td>CIP-012</td><td>Real-time data protection between control centers</td></tr>
+<tr><td>CIP-013</td><td>Supply chain risk management</td></tr>
+<tr><td>CIP-014</td><td>Physical security of critical transmission stations</td></tr>
+</tbody>
+</table>
+</div>
+<p>CIP-002 is the foundation. Everything else flows from how you categorize your assets. BES Cyber Systems rated High and Medium get the full prescriptive requirements. Low-impact systems get a reduced set under CIP-003 Attachment 1. If you miscategorize, you either under-protect High-impact assets or spend resources on controls that do not apply. Auditors look at categorization methodology before they look at anything else.</p>
+<h2>The Vocabulary</h2>
+<p>Before you read requirements text, you need to internalize the definitions. CIP requirements reference defined terms precisely, and using them loosely causes compliance gaps.</p>
+<p>A <strong>BES Cyber Asset</strong> is a programmable electronic device that, if compromised or unavailable for 15 minutes, could affect the reliable operation of the BES. A <strong>BES Cyber System</strong> is a grouping of BES Cyber Assets performing a reliability function. Systems are what get categorized, not individual assets.</p>
+<p><strong>Electronic Access Control or Monitoring Systems (EACMS)</strong> are the systems that protect or monitor electronic access to BES Cyber Systems: firewalls, authentication servers, jump hosts, security information and event management systems. They carry their own CIP requirements because compromising an EACMS is often a prerequisite to compromising the underlying BES Cyber System.</p>
+<p><strong>Protected Cyber Assets (PCAs)</strong> are systems within the Electronic Security Perimeter that are not BES Cyber Assets but share network space with them. They matter because they can be a lateral movement path.</p>
+<p><strong>BES Cyber System Information (BCSI)</strong> is information about BES Cyber Systems: design documents, network diagrams, security procedures, configuration files. CIP-011 governs how you store, access, and dispose of it. A printed network diagram left in an unlocked drawer is a BCSI finding.</p>
+<p><strong>Transient Cyber Assets and Removable Media</strong> cover laptops, USB drives, tablets, and vendor-supplied equipment brought into a PSP or connected to BES Cyber Systems. CIP-010 has specific requirements for these. Vendors plugging their laptops into your control network without a documented authorization and malware scan is one of the most common audit findings.</p>
+<h2>What Evidence-Based Compliance Actually Looks Like</h2>
+<p>The difference between passing an audit and failing one is almost never the security controls themselves. It is the evidence that those controls exist, were implemented on time, and are operating as designed. Auditors ask for documentation. They ask for logs. They ask for tickets that show the control ran.</p>
+<p>CIP-007 requires patching within 35 days of release for High and Medium impact systems, or documenting a risk-based decision to delay. The patch itself is not the evidence. The ticket that shows you received the vendor notification, assessed the risk, scheduled the patch, applied it, and verified it is the evidence. If that ticket does not exist, the patch did not happen from a compliance standpoint.</p>
+<p>CIP-004 requires personnel risk assessments before granting unescorted access to PSPs or electronic access to BES Cyber Systems. The PRA must be completed. The access must not be granted before it is complete. The access must be revoked within 24 hours of personnel termination. Each of these has a timestamp requirement. Automate what you can. Manual processes drift.</p>
+<p>CIP-010 requires you to maintain a baseline configuration for each BES Cyber System and document and authorize every change. Change management is not optional and it is not informal. An engineer who remotes in and adjusts a parameter without a change ticket is a violation.</p>
+<h2>Remote Access and the ESP</h2>
+<p>CIP-005 requires that all interactive remote access to BES Cyber Systems originate from outside the ESP through an Intermediate System. The Intermediate System is the jump host or bastion. You cannot have a vendor VPN directly to a BES Cyber Asset. The traffic must terminate at the Intermediate System, be authenticated, be logged, and the session must be monitored.</p>
+<p>MFA is required for all interactive remote access for High and Medium impact systems. One-factor authentication to a jump host that then connects to a BES Cyber Asset is not compliant. Both hops need to be covered.</p>
+<p>Vendor remote access is one of the highest-risk areas in practice. Define a process: vendor requests access, access is authorized, a session is opened with logging, the session is terminated when work is done, and access is revoked. Every step is documented. Persistent vendor VPN tunnels that are always on are findings waiting to happen.</p>
+<h2>Supply Chain: CIP-013</h2>
+<p>CIP-013 was added in 2020 and is still the standard that most entities underestimate. It requires a documented supply chain risk management plan covering how you evaluate vendors, what security requirements you include in contracts, how vendors notify you of incidents affecting your systems, and how you manage end-of-life software and firmware.</p>
+<p>The common mistake is treating CIP-013 as a procurement checklist and forgetting the ongoing obligations. If a vendor notifies you of a software vulnerability in a product deployed on your BES Cyber Systems, you have obligations under both CIP-007 and CIP-013. The response has to be documented.</p>
+<p>Contracts with vendors who have remote access or supply software to BES Cyber Systems should include incident notification clauses, background check requirements, and the right to audit. Legal reviews these slowly. Start early.</p>
+<h2>What I Have Not Solved Yet</h2>
+<p>I have not mapped NERC CIP requirements to IEC 62443 Foundational Requirements in a systematic way. The two standards overlap substantially in the electric utility sector but are structured differently. CIP is prescriptive and auditable. IEC 62443 is a framework. Understanding where they align and where they diverge is the next step for a practitioner working in electric utilities, and it gets its own article.</p>
+<p>I have not worked through the NERC CIP violation and penalty process in depth. The enforcement side, how violations are self-reported, how they are adjudicated, and how mitigation plans work, is a topic unto itself. The E-ISAC and NERC's public enforcement database are the primary sources.</p>
+<h2>Companion Project</h2>
+<p>The companion for this article is a <a href="/ot-learning/module-4-standards/article-9-companion-cip-002.html">CIP-002 asset classification worked example</a>, a fictional utility walked through the High, Medium, and Low impact ratings that drive every other CIP requirement. The zone and conduit assessment template and IEC 62443-3-2 risk assessment worksheet in <a href="https://github.com/mhebert-security/ics-standards-lab">github.com/mhebert-security/ics-standards-lab</a> apply directly to the CIP-002 categorization and CIP-010 configuration management processes. A future addition to that repo will include a CIP evidence tracker: a structured template for mapping each applicable CIP requirement to the control, policy, and evidence artifact that satisfies it, with an audit-ready export.</p>
+        </div>
 
         <p class="faint">Back to <a href="/ot-learning/module-4-standards/">Standards and Compliance</a> or the <a href="/ot-learning/">series index</a>.</p>
     </main>

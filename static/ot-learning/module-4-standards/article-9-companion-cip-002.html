@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matthew Hebert · CIP-002 Asset Classification: A Worked Example</title>
+    <meta name="description" content="A worked CIP-002 asset classification for a fictional utility, from High to Low impact ratings and the evidence each one requires.">
+    <meta property="og:title" content="Matthew Hebert · CIP-002 Asset Classification: A Worked Example">
+    <meta property="og:description" content="A worked CIP-002 asset classification for a fictional utility, from High to Low impact ratings and the evidence each one requires.">
+    <meta property="og:url" content="https://mhebert.dev/ot-learning/module-4-standards/article-9-companion-cip-002.html">
+    <link rel="icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+    <header class="page-head">
+        <a class="wordmark" href="/">mhebert<span class="dot">.</span>dev</a>
+        <nav class="nav" aria-label="Site">
+            <a href="/">index</a>
+            <a href="/projects">projects</a>
+            <a href="/about">about</a>
+            <a href="/writing/">writing</a>
+            <a href="/ot-learning/" aria-current="page">OT/ICS Learning</a>
+            <a href="/news">news</a>
+            <a href="/contact">contact</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">CIP-002 Asset Classification: A Worked Example</h1>
+        <p class="lead">A worked CIP-002 asset classification for a fictional utility, from High to Low impact ratings and the evidence each one requires.</p>
+        <div class="writeup">
+<p>Reading the CIP-002 standard in isolation tells you what criteria to apply. Walking through a classification for a real-ish entity shows you how the criteria interact and where the judgment calls live. This is a worked example for a fictional utility: Northwind Power and Light.</p>
+<p>This page is a companion to <a href="/ot-learning/module-4-standards/article-9-nerc-cip.html">NERC CIP for Security Practitioners: What You Actually Need to Know</a>, Module 4, Article 9 of the OT Learning series.</p>
+<hr>
+<h2>The Entity</h2>
+<p>Northwind Power and Light holds five NERC registration functions: Transmission Owner, Transmission Operator, Balancing Authority, Generation Owner, and Generation Operator. That combination means CIP applies to assets across generation, transmission, and control operations simultaneously.</p>
+<p>Their BES footprint:</p>
+<p><strong>Generation</strong></p>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>Station</th><th>Unit</th><th>Capacity</th></tr>
+</thead>
+<tbody>
+<tr><td>Riverbend Coal</td><td>Unit 1</td><td>1,600 MW</td></tr>
+<tr><td>Lakeview Nuclear</td><td>Unit 1</td><td>1,200 MW</td></tr>
+<tr><td>Pine Gas</td><td>Units 1-3</td><td>300 MW each</td></tr>
+<tr><td>Cedar Hydro</td><td>Unit 1</td><td>150 MW</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Transmission Substations</strong></p>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>Substation</th><th>Voltage</th><th>Role</th></tr>
+</thead>
+<tbody>
+<tr><td>Alpha</td><td>345/230 kV</td><td>Critical hub</td></tr>
+<tr><td>Beta</td><td>345/138 kV</td><td>Critical hub</td></tr>
+<tr><td>Gamma</td><td>230/138 kV</td><td>Critical</td></tr>
+<tr><td>Delta</td><td>138 kV</td><td>Local</td></tr>
+<tr><td>Epsilon</td><td>138 kV</td><td>Local</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Control Centers:</strong> Primary Control Center (PCC) downtown and Backup Control Center (BCC) 50 miles out.</p>
+<p><strong>Systems:</strong> EMS/SCADA at PCC and BCC; Substation Automation Systems at all five substations; generation DCS at each plant; protection relays throughout; MPLS, microwave, and fiber comms; PACS and EACMS at PCC, BCC, and substations.</p>
+<h2>Step 1: Identify BES Cyber Systems</h2>
+<p>A BES Cyber Asset is a programmable electronic device that, if compromised or unavailable for 15 minutes, could affect BES reliability. A BES Cyber System is a grouping of BES Cyber Assets performing a reliability function. I identify 11 systems before I apply any impact criteria:</p>
+<ol>
+<li>PCC EMS/SCADA</li>
+<li>BCC EMS/SCADA</li>
+<li>Riverbend Unit 1 DCS</li>
+<li>Lakeview Unit 1 DCS</li>
+<li>Pine Units 1-3 DCS</li>
+<li>Cedar Unit 1 DCS</li>
+<li>Alpha SAS and protection</li>
+<li>Beta SAS and protection</li>
+<li>Gamma SAS and protection</li>
+<li>Delta SAS and protection</li>
+<li>Epsilon SAS and protection</li>
+</ol>
+<p>The communication systems supporting these are either part of the BCS they serve or associated assets depending on how they are scoped.</p>
+<h2>Step 2: High Impact Criteria</h2>
+<p>High Impact criteria focus on assets whose loss could trigger cascading outages or wipe out large generation. For this exercise I apply the simplified threshold: generation units at or above 1,500 MW are High Impact.</p>
+<p>Riverbend Unit 1 at 1,600 MW clears that threshold. Nothing else does. One High Impact BES Cyber System.</p>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>BES Cyber System</th><th>Criteria</th><th>Rating</th></tr>
+</thead>
+<tbody>
+<tr><td>Riverbend Unit 1 DCS</td><td>Generation &gt;= 1,500 MW</td><td>High</td></tr>
+</tbody>
+</table>
+</div>
+<h2>Step 3: Medium Impact Criteria</h2>
+<p>Medium Impact covers control centers, generation at or above 20 MVA, and certain transmission substations. Applying those criteria:</p>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>BES Cyber System</th><th>Criteria</th><th>Rating</th></tr>
+</thead>
+<tbody>
+<tr><td>PCC EMS/SCADA</td><td>Control Center</td><td>Medium</td></tr>
+<tr><td>BCC EMS/SCADA</td><td>Backup Control Center</td><td>Medium</td></tr>
+<tr><td>Lakeview Unit 1 DCS</td><td>Generation &gt;= 20 MVA</td><td>Medium</td></tr>
+<tr><td>Pine Units 1-3 DCS</td><td>Generation &gt;= 20 MVA</td><td>Medium</td></tr>
+<tr><td>Cedar Unit 1 DCS</td><td>Generation &gt;= 20 MVA</td><td>Medium</td></tr>
+<tr><td>Alpha SAS</td><td>345/230 kV substation</td><td>Medium</td></tr>
+<tr><td>Beta SAS</td><td>345/138 kV substation</td><td>Medium</td></tr>
+<tr><td>Gamma SAS</td><td>230/138 kV substation</td><td>Medium</td></tr>
+</tbody>
+</table>
+</div>
+<h2>Step 4: Low Impact</h2>
+<p>Whatever does not meet High or Medium criteria is Low Impact. Low does not mean no requirements. CIP-003 Attachment 1 still applies: physical security controls, electronic access controls, and cyber security awareness training at minimum.</p>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>BES Cyber System</th><th>Criteria</th><th>Rating</th></tr>
+</thead>
+<tbody>
+<tr><td>Delta SAS</td><td>138 kV substation</td><td>Low</td></tr>
+<tr><td>Epsilon SAS</td><td>138 kV substation</td><td>Low</td></tr>
+</tbody>
+</table>
+</div>
+<h2>Step 5: Associated Systems</h2>
+<p>For each High and Medium BCS, I identify the associated Electronic Access Control or Monitoring Systems, Physical Access Control Systems, and Protected Cyber Assets. These inherit the impact rating of the system they support.</p>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>Associated System</th><th>Associated With</th><th>Inherited Rating</th></tr>
+</thead>
+<tbody>
+<tr><td>PCC firewall</td><td>PCC EMS/SCADA</td><td>Medium</td></tr>
+<tr><td>PCC jump host</td><td>PCC EMS/SCADA</td><td>Medium</td></tr>
+<tr><td>PACS at PCC</td><td>PCC EMS/SCADA</td><td>Medium</td></tr>
+<tr><td>IDS at Beta</td><td>Beta SAS</td><td>Medium</td></tr>
+<tr><td>PACS at Alpha</td><td>Alpha SAS</td><td>Medium</td></tr>
+<tr><td>PACS at Riverbend</td><td>Riverbend DCS</td><td>High</td></tr>
+<tr><td>Vendor laptop at Riverbend</td><td>Riverbend DCS</td><td>High (Transient Cyber Asset)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The vendor laptop entry is where people miss findings. A laptop a field technician brings on-site and connects to a High Impact system is a High Impact Transient Cyber Asset. CIP-010 requirements apply before it touches anything.</p>
+<h2>Classification Summary</h2>
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th>Asset/System</th><th>Function</th><th>Criteria</th><th>Rating</th></tr>
+</thead>
+<tbody>
+<tr><td>Riverbend Unit 1 DCS</td><td>Generation control</td><td>&gt;= 1,500 MW</td><td>High</td></tr>
+<tr><td>PCC EMS/SCADA</td><td>Control center</td><td>Control Center</td><td>Medium</td></tr>
+<tr><td>BCC EMS/SCADA</td><td>Backup control center</td><td>Control Center</td><td>Medium</td></tr>
+<tr><td>Lakeview Unit 1 DCS</td><td>Generation control</td><td>&gt;= 20 MVA</td><td>Medium</td></tr>
+<tr><td>Pine Units 1-3 DCS</td><td>Generation control</td><td>&gt;= 20 MVA</td><td>Medium</td></tr>
+<tr><td>Cedar Unit 1 DCS</td><td>Generation control</td><td>&gt;= 20 MVA</td><td>Medium</td></tr>
+<tr><td>Alpha SAS</td><td>Transmission</td><td>345/230 kV</td><td>Medium</td></tr>
+<tr><td>Beta SAS</td><td>Transmission</td><td>345/138 kV</td><td>Medium</td></tr>
+<tr><td>Gamma SAS</td><td>Transmission</td><td>230/138 kV</td><td>Medium</td></tr>
+<tr><td>Delta SAS</td><td>Transmission</td><td>138 kV</td><td>Low</td></tr>
+<tr><td>Epsilon SAS</td><td>Transmission</td><td>138 kV</td><td>Low</td></tr>
+<tr><td>PACS at Riverbend</td><td>Physical access</td><td>Assoc. with High</td><td>High</td></tr>
+<tr><td>PACS at PCC</td><td>Physical access</td><td>Assoc. with Medium</td><td>Medium</td></tr>
+<tr><td>Firewall at PCC</td><td>Electronic access</td><td>Assoc. with Medium</td><td>Medium</td></tr>
+</tbody>
+</table>
+</div>
+<h2>The Evidence CIP-002 Actually Requires</h2>
+<p>Impact ratings are not the deliverable. The deliverable is documented justification that an auditor can follow.</p>
+<p>CIP-002 requires you to document the process used to identify BES Cyber Systems, the criteria applied to each rating, the resulting ratings, approval by a responsible manager, and an annual review process. An asset inventory alone does not satisfy this. You need a criteria matrix that maps each BCS to the specific attachment criterion that drives its rating, a boundary diagram showing each Electronic Security Perimeter, and a signed categorization approval from a named manager.</p>
+<p>After that, every change that could affect a rating triggers a review. A generator uprate that pushes a unit past 1,500 MW turns a Medium system into a High. You need a change management process that catches this before the auditor does.</p>
+<h2>The Judgment Calls</h2>
+<p>A few scenarios the criteria alone do not resolve:</p>
+<p>Delta at 138 kV rates Low in this example, but if Delta is the only path to the Alpha 345/230 kV hub, the argument for Medium is defensible. The standard requires you to assess whether loss of that 138 kV substation could affect High or Medium Impact assets. Document the analysis either way.</p>
+<p>Virtualized environments where multiple BCS share hardware need a decision about whether the hypervisor is a BCA, a PCA, or both. The answer depends on whether compromise of the hypervisor could affect the BCS. It usually can.</p>
+<p>Cloud services that perform reliability functions are increasingly common and consistently under-scoped. If a cloud-hosted historian or analytics platform processes real-time data from BES Cyber Systems, the question of whether it qualifies as a BES Cyber Asset or associated system is live. Regional Entity guidance is the place to look, and the answer is not settled across all regions.</p>
+<h2>What I Have Not Solved Yet</h2>
+<p>I have not worked through how the 15-minute availability threshold applies to layered systems. If a BES Cyber Asset communicates through a communication front end that would break connectivity if taken offline for 15 minutes, is that front end itself a BCA? The standard suggests yes, but the boundaries get blurry with multi-hop architectures.</p>
+<p>The real CIP-002 standard references Attachment 1 and Attachment 2 for the actual criteria, and the criteria are more specific than what I used in this simplified exercise. Before using this framework in a real classification, read CIP-002-5.1a and your Regional Entity's guidance on impact rating.</p>
+        </div>
+
+        <p class="faint">Back to <a href="/ot-learning/module-4-standards/article-9-nerc-cip.html">NERC CIP for Security Practitioners</a> or the <a href="/ot-learning/module-4-standards/">Standards and Compliance</a> module.</p>
+    </main>
+
+    <footer class="page-footer">
+        served by <code>zero-trust-server</code> · HTTP/1.1 from raw sockets · rustls TLS 1.3 · a proof of work gate · <a href="/transparency">what this server records</a>
+    </footer>
+</body>
+</html>
